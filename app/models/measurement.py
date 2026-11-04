@@ -35,6 +35,12 @@ class Measurement(Base, IdMixin, TenantMixin, CreatedMixin):
     gps_accuracy: Mapped[float] = mapped_column(Float)
     location_anonymized: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
+    # Rattachement au réseau routier (renseigné par la tâche roads.match)
+    road_segment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("road_segments.id", ondelete="SET NULL"))
+    road_distance_m: Mapped[float | None] = mapped_column(Float)
+    road_matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     duration_seconds: Mapped[float] = mapped_column(Float)
     effective_duration_seconds: Mapped[float] = mapped_column(Float)
     sample_rate_hz: Mapped[int | None] = mapped_column(Integer)
@@ -58,6 +64,8 @@ class Measurement(Base, IdMixin, TenantMixin, CreatedMixin):
         Index("ix_meas_tenant_status_time", "tenant_id", "quality_status", "measured_at"),
         Index("ix_meas_tenant_h3_time", "tenant_id", "h3_index", "measured_at"),
         Index("ix_meas_tenant_aggregated", "tenant_id", "aggregated_at"),
+        Index("ix_meas_tenant_road_time", "tenant_id", "road_segment_id", "measured_at"),
+        Index("ix_meas_tenant_road_matched", "tenant_id", "road_matched_at"),
     )
 
 

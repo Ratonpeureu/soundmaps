@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from app.models.enums import MissionStatus
+from app.models.enums import DayPart, MissionStatus
 
 
 class QuotaOut(BaseModel):
@@ -41,9 +41,23 @@ class QuotaCheckOut(BaseModel):
     free: bool
 
 
+class MissionTarget(BaseModel):
+    """Point précis à rejoindre (trajet calculé côté mobile). Une mesure à moins de radius_m est valide."""
+    lat: float
+    lon: float
+    radius_m: float
+    day_part: DayPart | None = None
+    window_start_at: datetime | None = None
+    window_end_at: datetime | None = None
+    segment_id: uuid.UUID | None = None
+    road_name: str | None = None
+    road_class: str | None = None
+
+
 class MissionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    kind: str
     status: MissionStatus
     zone_h3: str
     center_lat: float
@@ -55,11 +69,27 @@ class MissionOut(BaseModel):
     confirmed_count: int
     reward_credits: float
     priority: float
+    road_segment_id: uuid.UUID | None = None
+    road_name: str | None = None
+    road_class: str | None = None
+    target_day_part: DayPart | None = None
+    window_start_at: datetime | None = None
+    window_end_at: datetime | None = None
     created_at: datetime
     offer_expires_at: datetime
     accepted_at: datetime | None
     deadline_at: datetime | None
     finished_at: datetime | None
+
+    @computed_field
+    @property
+    def target(self) -> MissionTarget | None:
+        if self.kind != "road":
+            return None
+        return MissionTarget(lat=self.center_lat, lon=self.center_lon, radius_m=self.radius_m,
+                             day_part=self.target_day_part, window_start_at=self.window_start_at,
+                             window_end_at=self.window_end_at, segment_id=self.road_segment_id,
+                             road_name=self.road_name, road_class=self.road_class)
 
 
 class MissionSyncIn(BaseModel):

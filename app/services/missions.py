@@ -12,12 +12,14 @@ from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.road_settings import road_settings as rs
 from app.models.enums import MissionStatus, QualityStatus
 from app.models.geo import GeographicCell, NoiseAggregation
 from app.models.measurement import Measurement
 from app.models.quota import Mission
 from app.models.tenancy import User, UserConsent
 from app.services import quota as quota_service
+from app.services import road_missions
 from app.services.acoustics import clamp01
 from app.services.geo import TZ
 
@@ -90,11 +92,12 @@ async def zone_deficits(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID, no
 
 
 async def _committed(db: AsyncSession, tenant_id: uuid.UUID, now: datetime):
+    """Engagements sur les missions de zone uniquement (les missions routes ont leur propre logique)."""
     committed: dict[str, int] = defaultdict(int)
     pairs: set = set()
     rows = (await db.execute(select(Mission.zone_h3, Mission.user_id, Mission.status, Mission.required_count,
                                     Mission.done_count, Mission.created_at).where(
-        Mission.tenant_id == tenant_id,
+        Mission.tenant_id == tenant_id, Mission.kind == "zone",
         or_(Mission.status.in_(_ACTIVE),
             Mission.created_at >= now - timedelta(days=settings.MISSION_DECLINE_COOLDOWN_DAYS))))).all()
     for zone, uid, st, req, done, _ in rows:
@@ -165,7 +168,7 @@ async def profiles(db: AsyncSession, tenant_id: uuid.UUID, now: datetime,
     return out
 
 
-# ------------------------------------------------------------------ affectation
+# ------------------------------------------------------------------ affectation (missions de zone)
 
 async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], profs: dict[uuid.UUID, Profile],
                   now: datetime, max_new: int) -> list[Mission]:
@@ -199,7 +202,7 @@ async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], pro
             size = mn + (mx - mn) * p.score * (0.6 + 0.4 * z.need)
             size = int(max(mn, min(round(size), math.ceil(remaining), mx)))
             db.add(m := Mission(
-                tenant_id=tenant_id, user_id=uid, status=MissionStatus.offered, zone_h3=z.zone_id,
+                tenant_id=tenant_id, user_id=uid, kind="zone", status=MissionStatus.offered, zone_h3=z.zone_id,
                 center_lat=z.lat, center_lon=z.lon, radius_m=z.radius_m, distance_km=round(d_km, 1),
                 required_count=size, done_count=0, confirmed_count=0,
                 reward_credits=round(size * settings.MISSION_REWARD_PER_MEASUREMENT * (0.75 + 0.5 * z.need), 1),
@@ -219,10 +222,17 @@ async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], pro
 async def generate_for_tenant(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID) -> int:
     now = datetime.now(timezone.utc)
     zones = await zone_deficits(db, redis, tenant_id, now)
-    if not zones:
-        return 0
     profs = await profiles(db, tenant_id, now)
-    return len(await _assign(db, tenant_id, zones, profs, now, settings.MISSION_MAX_NEW_PER_USER_PER_RUN))
+    if not profs:
+        return 0
+    created: list[Mission] = []
+    if zones:
+        created = await _assign(db, tenant_id, zones, profs, now, settings.MISSION_MAX_NEW_PER_USER_PER_RUN)
+        for m in created:
+            profs[m.user_id].load += 1
+    if rs.ROAD_MISSIONS_ENABLED:
+        created += await road_missions.assign(db, tenant_id, profs, now, rs.ROAD_MAX_NEW_PER_USER_PER_RUN)
+    return len(created)
 
 
 async def sync_for_user(db: AsyncSession, redis: Redis, user: User, lat: float, lon: float) -> None:
@@ -234,10 +244,14 @@ async def sync_for_user(db: AsyncSession, redis: Redis, user: User, lat: float, 
     zones = await zone_deficits(db, redis, user.tenant_id, now)
     profs = await profiles(db, user.tenant_id, now, only=[user.id])
     p = profs.get(user.id)
-    if p is None or not zones:
+    if p is None:
         return
     p.anchor = (lat, lon)
-    await _assign(db, user.tenant_id, zones, {user.id: p}, now, max_new=2)
+    if zones:
+        created = await _assign(db, user.tenant_id, zones, {user.id: p}, now, max_new=2)
+        p.load += len(created)
+    if rs.ROAD_MISSIONS_ENABLED:
+        await road_missions.assign(db, user.tenant_id, {user.id: p}, now, rs.ROAD_SYNC_MAX_NEW)
 
 
 async def ranking(db: AsyncSession, tenant_id: uuid.UUID, limit: int = 50) -> list[dict]:
@@ -261,7 +275,8 @@ async def expire(db: AsyncSession, tenant_id: uuid.UUID) -> int:
 
 
 async def reconcile(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> int:
-    """Recalcule la progression depuis les mesures réelles ; clôture (réussite + récompense, ou échec)."""
+    """Recalcule la progression depuis les mesures réelles ; clôture (réussite + récompense, ou échec).
+    Mission route : mesures dans la tolérance du point cible, dans la plage horaire et la fenêtre visées."""
     now = datetime.now(timezone.utc)
     conds = [Mission.tenant_id == tenant_id, Mission.status == MissionStatus.accepted]
     if user_id:
@@ -270,11 +285,20 @@ async def reconcile(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID |
     for m in missions:
         dist = func.ST_DistanceSphere(Measurement.geom,
                                       func.ST_SetSRID(func.ST_MakePoint(m.center_lon, m.center_lat), 4326))
+        since = m.accepted_at
+        if m.window_start_at is not None and m.window_start_at > since:
+            since = m.window_start_at
+        mconds = [Measurement.tenant_id == tenant_id, Measurement.user_id == m.user_id,
+                  Measurement.measured_at >= since, Measurement.quality_status != QualityStatus.rejected,
+                  dist <= m.radius_m]
+        if m.kind == "road":
+            if m.target_day_part is not None:
+                mconds.append(Measurement.day_part == m.target_day_part)
+            if m.window_end_at is not None:
+                mconds.append(Measurement.measured_at <= m.window_end_at)
         total, ok = (await db.execute(select(
             func.count(), func.coalesce(func.sum(case((Measurement.quality_status.in_(_USABLE), 1), else_=0)), 0)
-        ).where(Measurement.tenant_id == tenant_id, Measurement.user_id == m.user_id,
-                Measurement.measured_at >= m.accepted_at, Measurement.quality_status != QualityStatus.rejected,
-                dist <= m.radius_m))).one()
+        ).where(*mconds))).one()
         m.done_count, m.confirmed_count = int(total), int(ok)
         if m.confirmed_count >= m.required_count:
             m.status, m.finished_at = MissionStatus.completed, now
@@ -306,6 +330,8 @@ async def respond(db: AsyncSession, user: User, mission_id: uuid.UUID, accept: b
             raise HTTPException(409, "mission_limit_reached")
         m.status, m.accepted_at = MissionStatus.accepted, now
         m.deadline_at = now + timedelta(hours=settings.MISSION_COMPLETION_HOURS)
+        if m.window_end_at is not None:                    # mission route : jamais au-delà de la plage visée
+            m.deadline_at = min(m.deadline_at, m.window_end_at)
     else:
         m.status, m.finished_at = MissionStatus.declined, now
     await db.commit()

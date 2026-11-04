@@ -2,6 +2,7 @@ from celery import Celery
 
 from app.core.account_settings import account_settings as acs
 from app.core.config import settings
+from app.core.road_settings import road_settings as rs
 
 celery_app = Celery(
     "sunusound",
@@ -9,7 +10,7 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.measurement_tasks", "app.tasks.aggregation_tasks", "app.tasks.collection_tasks",
              "app.tasks.privacy_tasks", "app.tasks.ai_tasks", "app.tasks.report_tasks",
-             "app.tasks.quota_tasks", "app.tasks.social_tasks"],
+             "app.tasks.quota_tasks", "app.tasks.social_tasks", "app.tasks.road_tasks"],
 )
 celery_app.conf.update(
     task_serializer="json", accept_content=["json"], result_serializer="json",
@@ -32,5 +33,7 @@ celery_app.conf.update(
         "leaderboard-refresh": {"task": "leaderboard.refresh", "schedule": acs.BEAT_LEADERBOARD_SECONDS},
         "leaderboard-xp": {"task": "leaderboard.xp", "schedule": acs.BEAT_XP_SECONDS},
         "accounts-cleanup": {"task": "accounts.cleanup", "schedule": settings.BEAT_PRIVACY_SECONDS},
+        "roads-match": {"task": "roads.match", "schedule": rs.ROAD_BEAT_MATCH_SECONDS},
+        "roads-ensure-network": {"task": "roads.ensure_network", "schedule": rs.ROAD_BEAT_ENSURE_SECONDS},
     },
 )
