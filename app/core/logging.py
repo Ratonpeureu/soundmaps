@@ -22,9 +22,15 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+
+
+
+
 def configure_logging() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(settings.LOG_LEVEL)
+    for noisy in ("httpx", "httpcore"):          # ces loggers affichent l'URL, donc la clé TomTom
+        logging.getLogger(noisy).setLevel(logging.WARNING)

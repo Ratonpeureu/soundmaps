@@ -1,12 +1,14 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.redis import get_redis
 from app.core.security import contributor_token
 from app.models.collection import CollectionProposal
 from app.models.devices import Device, DeviceModel
@@ -15,6 +17,7 @@ from app.models.measurement import Measurement, MeasurementQuality
 from app.models.tenancy import User
 from app.schemas.schemas import (BatchItemResult, BatchResult, HistoryItem, MeasurementAck,
                                       MeasurementBatch, MeasurementCreate)
+from app.services import quota as quota_service
 from app.services.geo import cell_for, day_part_of, get_or_create_cell, to_local
 from app.services.user import require_consents
 from app.tasks.celery_app import celery_app
@@ -54,6 +57,14 @@ async def ingest(db: AsyncSession, user: User, p: MeasurementCreate) -> Measurem
         if proposal is None or proposal.user_id != user.id or proposal.status != ProposalStatus.accepted:
             raise HTTPException(409, "proposal_not_accepted")
 
+    if settings.QUOTA_ENABLED:
+        hard = (datetime.now(timezone.utc) - p.measured_at) <= timedelta(minutes=settings.QUOTA_HARD_TOLERANCE_MINUTES)
+        decision = await quota_service.evaluate(
+            db, get_redis(), user, p.latitude, p.longitude, p.measured_at,
+            proposal=p.proposal_id is not None, hard=hard, consume=True)
+        if not decision.allowed:
+            raise HTTPException(429, decision.reason)
+
     local = to_local(p.measured_at)
     h3_index = cell_for(p.latitude, p.longitude)
     cell = await get_or_create_cell(db, user.tenant_id, h3_index)
@@ -77,7 +88,7 @@ async def ingest(db: AsyncSession, user: User, p: MeasurementCreate) -> Measurem
     try:
         await db.commit()
     except IntegrityError:
-        await db.rollback()
+        await db.rollback()                      # annule aussi le débit du quota
         existing = await _find_existing(db, user, p.client_measurement_id)
         if existing is None:
             raise HTTPException(409, "conflict")

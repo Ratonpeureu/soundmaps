@@ -75,3 +75,12 @@ class InsightKind(StrEnum):
     cell_analysis = "cell_analysis"
     anomaly_digest = "anomaly_digest"
     report_summary = "report_summary"
+
+
+class MissionStatus(StrEnum):
+    offered = "offered"
+    accepted = "accepted"
+    declined = "declined"
+    expired = "expired"
+    completed = "completed"
+    failed = "failed"

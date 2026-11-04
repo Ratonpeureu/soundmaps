@@ -1,5 +1,6 @@
 from celery import Celery
 
+from app.core.account_settings import account_settings as acs
 from app.core.config import settings
 
 celery_app = Celery(
@@ -7,7 +8,8 @@ celery_app = Celery(
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.measurement_tasks", "app.tasks.aggregation_tasks", "app.tasks.collection_tasks",
-             "app.tasks.privacy_tasks", "app.tasks.ai_tasks", "app.tasks.report_tasks"],
+             "app.tasks.privacy_tasks", "app.tasks.ai_tasks", "app.tasks.report_tasks",
+             "app.tasks.quota_tasks", "app.tasks.social_tasks"],
 )
 celery_app.conf.update(
     task_serializer="json", accept_content=["json"], result_serializer="json",
@@ -22,5 +24,13 @@ celery_app.conf.update(
         "adapt-weights": {"task": "collection.adapt_weights", "schedule": settings.BEAT_ADAPT_WEIGHTS_SECONDS},
         "privacy-anonymize": {"task": "privacy.anonymize", "schedule": settings.BEAT_PRIVACY_SECONDS},
         "ai-anomaly-digest": {"task": "ai.anomaly_digest", "schedule": settings.BEAT_AI_DIGEST_SECONDS},
+        "quota-rebalance": {"task": "quota.rebalance", "schedule": settings.BEAT_QUOTA_SECONDS},
+        "quota-cleanup": {"task": "quota.cleanup", "schedule": settings.BEAT_PRIVACY_SECONDS},
+        "missions-generate": {"task": "missions.generate", "schedule": settings.BEAT_MISSIONS_SECONDS},
+        "missions-reconcile": {"task": "missions.reconcile", "schedule": settings.BEAT_MISSIONS_RECONCILE_SECONDS},
+        "reviews-close": {"task": "reviews.close", "schedule": acs.BEAT_REVIEWS_SECONDS},
+        "leaderboard-refresh": {"task": "leaderboard.refresh", "schedule": acs.BEAT_LEADERBOARD_SECONDS},
+        "leaderboard-xp": {"task": "leaderboard.xp", "schedule": acs.BEAT_XP_SECONDS},
+        "accounts-cleanup": {"task": "accounts.cleanup", "schedule": settings.BEAT_PRIVACY_SECONDS},
     },
 )

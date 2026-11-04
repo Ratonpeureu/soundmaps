@@ -151,7 +151,7 @@ async def evaluate_measurement(db: AsyncSession, tenant_id: uuid.UUID, measureme
         return None
     existing = (await db.execute(select(MeasurementQuality).where(
         MeasurementQuality.measurement_id == m.id))).scalar_one_or_none()
-    if existing is not None and existing.evaluator == "admin":
+    if existing is not None and existing.evaluator in ("admin", "peer"):
         return existing.status                       # une décision admin n'est jamais écrasée
     if existing is not None and not force and m.quality_status != QualityStatus.pending:
         pass

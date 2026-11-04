@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SunuSound · Invitations et analyseurs</title>
+<style>
+:root{--bg:#f4f7f8;--card:#fff;--tx:#0f1b22;--mu:#64748b;--bd:#e2e8f0;--pr:#0e9f9a;--er:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1116;--card:#151d24;--tx:#e6edf2;--mu:#8da0ad;--bd:#26323b}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:16px 20px 60px}
+h1{font-size:18px}.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:12px 0;overflow:auto}
+input,button{font:inherit;color:inherit}input{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px}
+button{border:0;border-radius:9px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff}button.s{background:var(--bd);color:var(--tx)}button.e{background:var(--er)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--bd)}th{font-size:12px;color:var(--mu);text-transform:uppercase}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.row label{display:flex;flex-direction:column;font-size:12px;color:var(--mu);gap:3px}
+code{font-weight:800;letter-spacing:.08em}.toast{position:fixed;right:16px;top:16px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:10px}
+</style></head><body>
+<h1>Invitations et analyseurs <a href="index.html" style="font-size:13px">← Validation</a></h1>
+<div class="card"><b>Créer des invitations</b>
+  <div class="row" style="margin-top:8px">
+    <label>Nombre de codes<input id="n" type="number" value="1" min="1" max="50" style="width:90px"></label>
+    <label>Utilisations par code<input id="u" type="number" value="1" min="1" max="1000" style="width:110px"></label>
+    <label>Validité (jours)<input id="d" type="number" value="30" min="1" max="365" style="width:100px"></label>
+    <label>Note<input id="note" maxlength="120" style="width:220px"></label>
+    <button id="go">Créer</button></div></div>
+<div class="card"><table><thead><tr><th>Code</th><th>Type</th><th>Utilisé</th><th>Expire</th><th>Statut</th><th>Note</th><th></th></tr></thead><tbody id="inv"></tbody></table></div>
+<div class="card"><b>Analyseurs actifs</b>
+  <table><thead><tr><th>Pseudo</th><th>Depuis</th><th>Avis (60 j)</th><th>Concordance</th><th>Suspendu jusqu'à</th><th></th></tr></thead><tbody id="an"></tbody></table></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const base=localStorage.getItem('ss_api')||'https://soundmaps.rhmanager.site/api/v1';let at=sessionStorage.getItem('ss_at'),rt=sessionStorage.getItem('ss_rt');
+if(!at){location.href='index.html'}
+const toast=m=>{const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),3200)};
+async function refresh(){const r=await fetch(base+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:rt})});
+  if(!r.ok)return false;const d=await r.json();at=d.access_token;rt=d.refresh_token;sessionStorage.setItem('ss_at',at);sessionStorage.setItem('ss_rt',rt);return true}
+async function api(p,{method='GET',body}={},retry=true){
+  const r=await fetch(base+p,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),Authorization:'Bearer '+at},body:body?JSON.stringify(body):undefined});
+  if(r.status===401&&retry&&await refresh())return api(p,{method,body},false);
+  if(r.status===401){location.href='index.html';throw new Error('Session expirée')}
+  const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(typeof d?.detail==='string'?d.detail:'Erreur '+r.status);return d}
+const fd=s=>s?new Date(s).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'—';
+async function loadInv(){try{const l=await api('/account/invitations/all');
+  $('#inv').innerHTML=l.map(i=>`<tr><td><code>${esc(i.code)}</code></td><td>${esc(i.kind)}</td><td>${i.uses}/${i.max_uses}</td><td>${fd(i.expires_at)}</td><td>${i.active?'Actif':'Inactif'}</td><td>${esc(i.note||'')}</td><td>${i.active?`<button class="e" data-id="${esc(i.id)}">Révoquer</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7">Aucune invitation.</td></tr>'}catch(e){toast(e.message)}}
+async function loadAn(){try{const l=await api('/analyst/admin/list');
+  $('#an').innerHTML=l.map(a=>`<tr><td>${esc(a.display_name)}<div style="color:var(--mu);font-size:12px">${esc(a.pseudonym)}</div></td><td>${fd(a.since)}</td><td>${a.votes}</td><td>${Math.round(a.agreement*100)} %</td><td>${fd(a.suspended_until)}</td><td><button class="s" data-s="${esc(a.user_id)}">Suspendre 14 j</button> <button class="s" data-r="${esc(a.user_id)}">Réintégrer</button></td></tr>`).join('')||'<tr><td colspan="6">Aucun analyseur.</td></tr>'}catch(e){toast(e.message)}}
+$('#go').onclick=async()=>{try{const r=await api('/account/invitations/admin',{method:'POST',body:{count:+$('#n').value,max_uses:+$('#u').value,ttl_days:+$('#d').value,note:$('#note').value||null}});
+  toast(r.length+' code(s) créé(s) : '+r.map(i=>i.code).join(', '));loadInv()}catch(e){toast(e.message)}};
+$('#inv').onclick=async e=>{const id=e.target.dataset.id;if(!id)return;try{await api('/account/invitations/'+id,{method:'DELETE'});loadInv()}catch(x){toast(x.message)}};
+$('#an').onclick=async e=>{try{if(e.target.dataset.s)await api('/analyst/admin/'+e.target.dataset.s+'/suspend',{method:'POST',body:{days:14}});
+  if(e.target.dataset.r)await api('/analyst/admin/'+e.target.dataset.r+'/reinstate',{method:'POST'});loadAn()}catch(x){toast(x.message)}};
+loadInv();loadAn();
+</script></body></html>

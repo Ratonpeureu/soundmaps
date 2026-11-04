@@ -19,7 +19,9 @@ def evaluate(tenant_id: str, measurement_id: str):
         async with task_db(tid) as db:
             status = await quality_service.evaluate_measurement(db, tid, uuid.UUID(measurement_id))
             await db.commit()
-            return status.value if status else None
+        if status in (QualityStatus.validated, QualityStatus.indicative):
+            celery_app.send_task("reviews.dispatch", args=[tenant_id, measurement_id], countdown=2)
+        return status.value if status else None
     return run(_job())
 
 
@@ -40,7 +42,7 @@ def sweep_pending():
 
 @celery_app.task(name="measurements.reevaluate_model")
 def reevaluate_model(tenant_id: str, device_model_id: str):
-    """Réévalue les mesures récentes d'un modèle après changement de calibration (les décisions admin sont conservées)."""
+    """Réévalue les mesures récentes d'un modèle après changement de calibration (décisions admin et avis conservés)."""
     async def _job():
         tid = uuid.UUID(tenant_id)
         since = datetime.now(timezone.utc) - timedelta(days=settings.REEVALUATION_DAYS)

@@ -27,7 +27,8 @@ build/
 *.db-wal
 *.db-journal
 *.ini
-
+app_sound_map/
+.metadata
 
 
 
