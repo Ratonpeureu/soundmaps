@@ -963,6 +963,101 @@ async def close_redis() -> None:
 
 
 ################################################################################
+# FICHIER: core/road_settings.py
+################################################################################
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class RoadSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # ---- Import du réseau (OpenStreetMap / Overpass)
+    ROAD_AUTO_IMPORT: bool = True
+    ROAD_OVERPASS_URLS: str = ("https://overpass-api.de/api/interpreter,"
+                               "https://overpass.kumi.systems/api/interpreter,"
+                               "https://overpass.private.coffee/api/interpreter")
+    ROAD_OVERPASS_TIMEOUT_SECONDS: int = 180
+    ROAD_HTTP_TIMEOUT_SECONDS: float = 200
+    ROAD_COUNTRY_ISO: str = "SN"                       # "" = pas de filtre pays (bbox seule)
+    ROAD_BBOX: str = "-17.60,12.25,-11.30,16.75"       # west,south,east,north
+    ROAD_TILE_SIZE_DEG: float = 0.25
+    ROAD_TILE_MIN_DEG: float = 0.0625
+    ROAD_TILE_MAX_WAYS: int = 40000
+    ROAD_TILE_SPACING_SECONDS: int = 10
+    ROAD_TILE_MAX_ATTEMPTS: int = 5
+    ROAD_STALE_MINUTES: int = 120
+    ROAD_HIGHWAYS: str = ("motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,"
+                          "tertiary,tertiary_link,unclassified,residential,living_street")
+    ROAD_SEGMENT_TARGET_M: float = 250
+    ROAD_SEGMENT_MIN_M: float = 60
+    ROAD_INSERT_CHUNK: int = 400
+
+    # ---- Rattachement mesure -> tronçon
+    ROAD_MATCH_MAX_M: float = 40
+    ROAD_MATCH_BATCH: int = 5000
+
+    # ---- Carte
+    ROAD_BASELINE_DB: float = 0.0                      # niveau initial : calme (vert)
+    ROAD_MAP_MAX_FEATURES: int = 6000
+    ROAD_MAP_MAX_BBOX_DEG: float = 8.0
+    ROAD_NETWORK_CACHE_TTL_SECONDS: int = 86400
+    ROAD_NETWORK_CLIENT_MAX_AGE: int = 3600
+    ROAD_STATE_CACHE_TTL_SECONDS: int = 20
+
+    # ---- Missions sur les routes
+    ROAD_MISSIONS_ENABLED: bool = True
+    ROAD_MISSION_MAX_RANK: int = 6                     # 1 = autoroutes/nationales ... 6 = résidentielles
+    ROAD_MISSION_MAX_RADIUS_KM: float = 8
+    ROAD_TARGET_RADIUS_M: float = 50                   # tolérance autour du point cible
+    ROAD_MISSION_COUNT: int = 1
+    ROAD_TARGET_PER_PART: int = 3                      # mesures visées par tronçon et par plage horaire
+    ROAD_COVERAGE_WINDOW_DAYS: int = 7
+    ROAD_PART_WEIGHTS: str = "morning:1.0,afternoon:0.9,evening:0.85,night:0.5"
+    ROAD_LOOKAHEAD_HOURS: float = 6
+    ROAD_MIN_WINDOW_MINUTES: int = 45
+    ROAD_MIN_NEED: float = 0.25
+    ROAD_MAX_NEW_PER_USER_PER_RUN: int = 2
+    ROAD_SYNC_MAX_NEW: int = 2
+    ROAD_MAX_PENDING_PER_USER: int = 4
+    ROAD_MIN_SPACING_M: float = 400
+    ROAD_REPEAT_COOLDOWN_HOURS: int = 24
+    ROAD_REWARD_PER_MEASUREMENT: float = 0.8
+    ROAD_CANDIDATE_LIMIT: int = 6000
+    ROAD_MAX_USERS_PER_RUN: int = 400
+    ROAD_GROUP_H3_RES: int = 7
+
+    # ---- Tâches planifiées (secondes)
+    ROAD_BEAT_MATCH_SECONDS: int = 120
+    ROAD_BEAT_ENSURE_SECONDS: int = 21600
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        w, s, e, n = (float(x) for x in self.ROAD_BBOX.split(","))
+        return w, s, e, n
+
+    @property
+    def urls(self) -> list[str]:
+        return [u.strip() for u in self.ROAD_OVERPASS_URLS.split(",") if u.strip()]
+
+    @property
+    def highways(self) -> list[str]:
+        return [h.strip() for h in self.ROAD_HIGHWAYS.split(",") if h.strip()]
+
+    @property
+    def part_weights(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for item in self.ROAD_PART_WEIGHTS.split(","):
+            k, _, v = item.partition(":")
+            if k.strip():
+                out[k.strip()] = float(v or 1.0)
+        return out
+
+
+road_settings = RoadSettings()
+
+
+################################################################################
 # FICHIER: core/security.py
 ################################################################################
 
@@ -1150,6 +1245,7 @@ def task_session_factory():
 # FICHIER: main.py
 ################################################################################
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 
@@ -1162,17 +1258,26 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.redis import close_redis
+from app.core.road_settings import road_settings
 from app.db.session import engine
 from app.routers import (account, admin, ai, auth, collection, devices, health, leaderboard, map as map_router,
-                         measurements, missions, platform, quota, reports, reviews, statistics, tomtom, users,
-                         validation)
+                         measurements, missions,guide, platform, quota, reports, reviews, roads, statistics, tomtom,
+                         users, validation)
 
 from app.services.tomtom import close_tomtom
+from app.tasks.celery_app import celery_app
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    if road_settings.ROAD_AUTO_IMPORT:
+        try:                                     # import initial du réseau routier (idempotent, verrouillé côté worker)
+            celery_app.send_task("roads.ensure_network", countdown=20)
+        except Exception:
+            log.exception("roads_bootstrap_failed")
     yield
     await close_tomtom()
     await close_redis()
@@ -1195,7 +1300,7 @@ def create_app() -> FastAPI:
     extra_origins = [
         "https://soundmaps.rhmanager.site",
         "http://localhost:8093",
-        "http://localhost:8097"
+        "http://localhost:8097",
         "http://localhost:8000",
         "http://0.0.0.0:8093",
         "http://127.0.0.1:8093",
@@ -1209,7 +1314,8 @@ def create_app() -> FastAPI:
             allow_origins=allowed_origins,
             allow_credentials=False,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-            allow_headers=["Authorization", "Content-Type"],
+            allow_headers=["Authorization", "Content-Type", "If-None-Match"],
+            expose_headers=["ETag"],
         )
 
     @app.middleware("http")
@@ -1222,8 +1328,7 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
-        response.headers.setdefault("Cache-Control", "no-store")
+        response.headers.setdefault("Cache-Control", "no-store")     # une route peut fixer sa propre politique
         if prod:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response
@@ -1231,8 +1336,9 @@ def create_app() -> FastAPI:
     prefix = settings.API_V1_PREFIX
     app.include_router(health.router)
     for r in (platform, auth, users, devices, collection, measurements, map_router, statistics, admin, ai, tomtom,
-              reports, quota, missions, validation, account, leaderboard, reviews):
+              reports, quota, missions, validation, account,guide, leaderboard, reviews, roads):
         app.include_router(r.router, prefix=prefix)
+    app.include_router(roads.platform_router, prefix=prefix)
 
     Instrumentator().instrument(app)
     return app
@@ -1252,6 +1358,7 @@ from app.models.geo import GeographicCell, NoiseAggregation  # noqa: F401
 from app.models.insights import AIInsight, Report  # noqa: F401
 from app.models.measurement import Measurement, MeasurementQuality  # noqa: F401
 from app.models.quota import Mission, QuotaDay, UserQuota  # noqa: F401
+from app.models.roads import RoadImportTile, RoadSegment  # noqa: F401
 from app.models.tenancy import AuditLog, Tenant, User, UserConsent  # noqa: F401
 
 
@@ -1597,6 +1704,12 @@ class Measurement(Base, IdMixin, TenantMixin, CreatedMixin):
     gps_accuracy: Mapped[float] = mapped_column(Float)
     location_anonymized: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
+    # Rattachement au réseau routier (renseigné par la tâche roads.match)
+    road_segment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("road_segments.id", ondelete="SET NULL"))
+    road_distance_m: Mapped[float | None] = mapped_column(Float)
+    road_matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     duration_seconds: Mapped[float] = mapped_column(Float)
     effective_duration_seconds: Mapped[float] = mapped_column(Float)
     sample_rate_hz: Mapped[int | None] = mapped_column(Integer)
@@ -1620,6 +1733,8 @@ class Measurement(Base, IdMixin, TenantMixin, CreatedMixin):
         Index("ix_meas_tenant_status_time", "tenant_id", "quality_status", "measured_at"),
         Index("ix_meas_tenant_h3_time", "tenant_id", "h3_index", "measured_at"),
         Index("ix_meas_tenant_aggregated", "tenant_id", "aggregated_at"),
+        Index("ix_meas_tenant_road_time", "tenant_id", "road_segment_id", "measured_at"),
+        Index("ix_meas_tenant_road_matched", "tenant_id", "road_matched_at"),
     )
 
 
@@ -1678,7 +1793,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.models.enums import MissionStatus
+from app.models.enums import DayPart, MissionStatus
 from app.models.mixins import CreatedMixin, IdMixin, TenantMixin, pg_enum
 
 
@@ -1714,11 +1829,12 @@ class QuotaDay(Base, IdMixin, TenantMixin):
 class Mission(Base, IdMixin, TenantMixin, CreatedMixin):
     __tablename__ = "missions"
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(8), default="zone", server_default=text("'zone'"))   # zone | road
     status: Mapped[MissionStatus] = mapped_column(pg_enum(MissionStatus), default=MissionStatus.offered)
     zone_h3: Mapped[str] = mapped_column(String(16))
-    center_lat: Mapped[float] = mapped_column(Float)
+    center_lat: Mapped[float] = mapped_column(Float)       # mission route : point cible précis
     center_lon: Mapped[float] = mapped_column(Float)
-    radius_m: Mapped[float] = mapped_column(Float)
+    radius_m: Mapped[float] = mapped_column(Float)         # mission route : tolérance autour du point cible
     distance_km: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     required_count: Mapped[int] = mapped_column(Integer)
     done_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
@@ -1726,6 +1842,13 @@ class Mission(Base, IdMixin, TenantMixin, CreatedMixin):
     reward_credits: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     priority: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     features: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    road_segment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("road_segments.id", ondelete="SET NULL"))
+    road_name: Mapped[str | None] = mapped_column(String(160))
+    road_class: Mapped[str | None] = mapped_column(String(24))
+    target_day_part: Mapped[DayPart | None] = mapped_column(pg_enum(DayPart))
+    window_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     offer_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1733,7 +1856,76 @@ class Mission(Base, IdMixin, TenantMixin, CreatedMixin):
     __table_args__ = (
         Index("ix_missions_user_status", "user_id", "status"),
         Index("ix_missions_tenant_status_expires", "tenant_id", "status", "offer_expires_at"),
+        Index("ix_missions_tenant_kind_status", "tenant_id", "kind", "status"),
     )
+
+
+################################################################################
+# FICHIER: models/roads.py
+################################################################################
+
+import uuid
+from datetime import datetime
+
+from geoalchemy2 import Geometry
+from sqlalchemy import (BigInteger, Boolean, DateTime, Float, Index, Integer, SmallInteger, String,
+                        UniqueConstraint, func, text)
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+from app.models.mixins import IdMixin
+
+
+class RoadSegment(Base, IdMixin):
+    """Tronçon de route réel (OpenStreetMap). Donnée géographique publique, partagée par tous les tenants
+    (sans tenant_id ni RLS) : l'état de bruit par tenant est calculé à partir des mesures."""
+    __tablename__ = "road_segments"
+    osm_way_id: Mapped[int] = mapped_column(BigInteger)
+    seq: Mapped[int] = mapped_column(Integer)
+    start_node: Mapped[int] = mapped_column(BigInteger)          # nœuds OSM : conservent la connectivité
+    end_node: Mapped[int] = mapped_column(BigInteger)
+    highway: Mapped[str] = mapped_column(String(24))
+    road_rank: Mapped[int] = mapped_column(SmallInteger)          # 1 = autoroute/nationale ... 6 = résidentielle
+    class_weight: Mapped[float] = mapped_column(Float)            # poids de trafic attendu (0-1)
+    name: Mapped[str | None] = mapped_column(String(160))
+    ref: Mapped[str | None] = mapped_column(String(60))
+    oneway: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    maxspeed: Mapped[str | None] = mapped_column(String(20))
+    lanes: Mapped[int | None] = mapped_column(SmallInteger)
+    length_m: Mapped[float] = mapped_column(Float)
+    mid_lat: Mapped[float] = mapped_column(DOUBLE_PRECISION)      # point cible des missions
+    mid_lon: Mapped[float] = mapped_column(DOUBLE_PRECISION)
+    h3_index: Mapped[str] = mapped_column(String(16))
+    geom = mapped_column(Geometry("LINESTRING", srid=4326), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("osm_way_id", "seq", name="uq_road_segments_way_seq"),
+        Index("ix_road_segments_start_node", "start_node"),
+        Index("ix_road_segments_end_node", "end_node"),
+        Index("ix_road_segments_rank", "road_rank"),
+        Index("ix_road_segments_h3", "h3_index"),
+    )
+
+
+class RoadImportTile(Base):
+    """Suivi de l'import par tuiles (reprise possible)."""
+    __tablename__ = "road_import_tiles"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    west: Mapped[float] = mapped_column(DOUBLE_PRECISION)
+    south: Mapped[float] = mapped_column(DOUBLE_PRECISION)
+    east: Mapped[float] = mapped_column(DOUBLE_PRECISION)
+    north: Mapped[float] = mapped_column(DOUBLE_PRECISION)
+    size_deg: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(10), default="pending")   # pending|queued|running|done|split|failed
+    ways: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    segments: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    error: Mapped[str | None] = mapped_column(String(200))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index("ix_road_tiles_status", "status"),)
 
 
 ################################################################################
@@ -2508,6 +2700,31 @@ async def mine(user: User = Depends(get_current_user), db: AsyncSession = Depend
 
 
 ################################################################################
+# FICHIER: routers/guide.py
+################################################################################
+
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.deps import get_current_user, get_db
+from app.core.rate_limit import limit_by_user
+from app.models.tenancy import Tenant, User
+from app.services import guide as guide_service
+
+router = APIRouter(prefix="/guide", tags=["guide"],
+                   dependencies=[Depends(limit_by_user("guide", settings.RATE_LIMIT_API_PER_MINUTE))])
+
+
+@router.get("")
+async def guide(response: Response, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Guide utilisateur dynamique : les valeurs viennent de la configuration réelle (et des seuils du tenant)."""
+    tenant = await db.get(Tenant, user.tenant_id)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    return guide_service.build(tenant.settings if tenant else None, user.role.value)
+
+
+################################################################################
 # FICHIER: routers/health.py
 ################################################################################
 
@@ -2724,8 +2941,9 @@ async def history(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, g
 ################################################################################
 
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2733,10 +2951,12 @@ from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_roles
 from app.core.rate_limit import limit_by_user
 from app.core.redis import get_redis
-from app.models.enums import Role
+from app.models.enums import MissionStatus, Role
+from app.models.quota import Mission
 from app.models.tenancy import User
-from app.schemas.quota import MissionOut, MissionSyncIn
+from app.schemas.quota import MissionOut, MissionSyncIn, MissionTarget
 from app.services import missions as missions_service
+from app.services import tomtom as tt
 
 router = APIRouter(prefix="/missions", tags=["missions"],
                    dependencies=[Depends(limit_by_user("missions", settings.RATE_LIMIT_API_PER_MINUTE))])
@@ -2767,6 +2987,25 @@ async def accept(mission_id: uuid.UUID, user: User = Depends(get_current_user), 
 @router.post("/{mission_id}/decline", response_model=MissionOut)
 async def decline(mission_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await missions_service.respond(db, user, mission_id, False)
+
+
+@router.get("/{mission_id}/route",
+            dependencies=[Depends(limit_by_user("tomtom", settings.RATE_LIMIT_TOMTOM_PER_MINUTE))])
+async def mission_route(mission_id: uuid.UUID, o_lat: float = Query(..., ge=-90, le=90),
+                        o_lon: float = Query(..., ge=-180, le=180),
+                        mode: Literal["car", "pedestrian", "bicycle", "motorcycle", "taxi", "bus"] = "car",
+                        user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Itinéraire (TomTom) de la position de l'utilisateur jusqu'au point cible de la mission."""
+    m = await db.get(Mission, mission_id)
+    if m is None or m.user_id != user.id:
+        raise HTTPException(404, "mission_not_found")
+    if m.status not in (MissionStatus.offered, MissionStatus.accepted):
+        raise HTTPException(409, "mission_closed")
+    route = await tt.route(o_lat, o_lon, m.center_lat, m.center_lon, mode)
+    target = MissionTarget(lat=m.center_lat, lon=m.center_lon, radius_m=m.radius_m, day_part=m.target_day_part,
+                           window_start_at=m.window_start_at, window_end_at=m.window_end_at,
+                           segment_id=m.road_segment_id, road_name=m.road_name, road_class=m.road_class)
+    return {"mission_id": str(m.id), "target": target, "route": route}
 
 
 @router.get("/ranking/active")
@@ -3034,6 +3273,137 @@ async def admin_reinstate(user_id: uuid.UUID, admin: User = Depends(_admin), db:
     p.analyst_suspended_until = None
     await db.commit()
     return Msg(detail="reinstated")
+
+
+################################################################################
+# FICHIER: routers/roads.py
+################################################################################
+
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.deps import get_current_user, get_db, require_roles, verify_platform_key
+from app.core.rate_limit import limit_by_user
+from app.core.redis import get_redis
+from app.core.road_settings import road_settings as rs
+from app.models.enums import Role
+from app.models.tenancy import Tenant, User
+from app.schemas.schemas import TimeFilter
+from app.services import road_missions
+from app.services import roads as roads_service
+from app.services.thresholds import build_thresholds
+from app.tasks.celery_app import celery_app
+
+router = APIRouter(prefix="/roads", tags=["roads"],
+                   dependencies=[Depends(limit_by_user("roads", settings.RATE_LIMIT_API_PER_MINUTE))])
+platform_router = APIRouter(prefix="/platform/roads", tags=["platform"], dependencies=[Depends(verify_platform_key)])
+_staff = require_roles(Role.tenant_admin, Role.analyst)
+
+
+def _parse_bbox(bbox: str) -> tuple[float, float, float, float]:
+    try:
+        a = tuple(float(x) for x in bbox.split(","))
+        assert len(a) == 4 and -180 <= a[0] < a[2] <= 180 and -90 <= a[1] < a[3] <= 90
+        return a
+    except (ValueError, AssertionError):
+        raise HTTPException(422, "invalid_bbox (min_lon,min_lat,max_lon,max_lat)")
+
+
+async def _min_devices(db: AsyncSession, user: User) -> int:
+    tenant = await db.get(Tenant, user.tenant_id)
+    return build_thresholds(tenant.settings).public_min_devices
+
+
+# ------------------------------------------------------------------ carte
+
+@router.get("/network")
+async def network(request: Request, bbox: str = Query(..., description="min_lon,min_lat,max_lon,max_lat"),
+                  zoom: float | None = Query(None, ge=0, le=22), max_rank: int | None = Query(None, ge=1, le=6),
+                  user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+                  redis: Redis = Depends(get_redis)):
+    """Tracé réel et connecté des routes (statique, mis en cache côté serveur et côté client via ETag)."""
+    box, rank = _parse_bbox(bbox), roads_service.rank_for(zoom, max_rank)
+    data = await roads_service.network_features(db, redis, box, rank)
+    headers = {"ETag": data["etag"], "Cache-Control": f"private, max-age={rs.ROAD_NETWORK_CLIENT_MAX_AGE}"}
+    if request.headers.get("if-none-match") == data["etag"]:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse({"type": "FeatureCollection", "features": data["features"], "truncated": data["truncated"]},
+                        headers=headers)
+
+
+@router.get("/state")
+async def state(tf: TimeFilter = Depends(), include_indicative: bool = Query(False),
+                bbox: str = Query(...), zoom: float | None = Query(None, ge=0, le=22),
+                max_rank: int | None = Query(None, ge=1, le=6), user: User = Depends(get_current_user),
+                db: AsyncSession = Depends(get_db), redis: Redis = Depends(get_redis)):
+    """État de bruit des tronçons mesurés (id -> état). Tout tronçon absent est au niveau de base : calme, vert."""
+    box, rank = _parse_bbox(bbox), roads_service.rank_for(zoom, max_rank)
+    states = await roads_service.cached_states(db, redis, user.tenant_id, tf, include_indicative, box, rank,
+                                               await _min_devices(db, user))
+    return {"baseline": roads_service.baseline_state(), "segments": states}
+
+
+@router.get("/map")
+async def road_map(tf: TimeFilter = Depends(), include_indicative: bool = Query(False),
+                   bbox: str = Query(...), zoom: float | None = Query(None, ge=0, le=22),
+                   max_rank: int | None = Query(None, ge=1, le=6), user: User = Depends(get_current_user),
+                   db: AsyncSession = Depends(get_db), redis: Redis = Depends(get_redis)):
+    """Réseau + état de bruit fusionnés (GeoJSON prêt à afficher)."""
+    box, rank = _parse_bbox(bbox), roads_service.rank_for(zoom, max_rank)
+    net = await roads_service.network_features(db, redis, box, rank)
+    states = await roads_service.cached_states(db, redis, user.tenant_id, tf, include_indicative, box, rank,
+                                               await _min_devices(db, user))
+    return roads_service.merge(net, states)
+
+
+@router.get("/segments/{segment_id}")
+async def segment(segment_id: uuid.UUID, tf: TimeFilter = Depends(), include_indicative: bool = Query(False),
+                  user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await roads_service.segment_detail(db, user.tenant_id, segment_id, tf, include_indicative,
+                                              await _min_devices(db, user))
+
+
+# ------------------------------------------------------------------ staff
+
+@router.get("/stats")
+async def stats(user: User = Depends(_staff), db: AsyncSession = Depends(get_db),
+                redis: Redis = Depends(get_redis)):
+    return {"network": await roads_service.import_status(db, redis),
+            "coverage": await roads_service.stats(db, user.tenant_id)}
+
+
+@router.get("/needs")
+async def needs(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-180, le=180),
+                radius_km: float = Query(5, gt=0, le=15), limit: int = Query(50, ge=1, le=200),
+                user: User = Depends(_staff), db: AsyncSession = Depends(get_db)):
+    """Routes qui manquent le plus de mesures autour d'un point, avec la plage horaire conseillée."""
+    return await road_missions.needs_near(db, user.tenant_id, lat, lon, radius_km, limit)
+
+
+# ------------------------------------------------------------------ plateforme (clé X-Platform-Key)
+
+async def _public_db():
+    from app.db.session import SessionLocal
+    async with SessionLocal() as session:
+        yield session
+
+
+@platform_router.get("/import")
+async def import_progress(db: AsyncSession = Depends(_public_db), redis: Redis = Depends(get_redis)):
+    return await roads_service.import_status(db, redis)
+
+
+@platform_router.post("/import", status_code=202)
+async def import_start(force: bool = Query(False)):
+    """Lance (ou relance) l'import du réseau routier ; force=true relance aussi les tuiles récentes."""
+    celery_app.send_task("roads.ensure_network", args=[force])
+    return {"detail": "import_scheduled", "at": datetime.now(timezone.utc)}
 
 
 ################################################################################
@@ -3595,9 +3965,9 @@ class Msg(BaseModel):
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from app.models.enums import MissionStatus
+from app.models.enums import DayPart, MissionStatus
 
 
 class QuotaOut(BaseModel):
@@ -3635,9 +4005,23 @@ class QuotaCheckOut(BaseModel):
     free: bool
 
 
+class MissionTarget(BaseModel):
+    """Point précis à rejoindre (trajet calculé côté mobile). Une mesure à moins de radius_m est valide."""
+    lat: float
+    lon: float
+    radius_m: float
+    day_part: DayPart | None = None
+    window_start_at: datetime | None = None
+    window_end_at: datetime | None = None
+    segment_id: uuid.UUID | None = None
+    road_name: str | None = None
+    road_class: str | None = None
+
+
 class MissionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    kind: str
     status: MissionStatus
     zone_h3: str
     center_lat: float
@@ -3649,11 +4033,27 @@ class MissionOut(BaseModel):
     confirmed_count: int
     reward_credits: float
     priority: float
+    road_segment_id: uuid.UUID | None = None
+    road_name: str | None = None
+    road_class: str | None = None
+    target_day_part: DayPart | None = None
+    window_start_at: datetime | None = None
+    window_end_at: datetime | None = None
     created_at: datetime
     offer_expires_at: datetime
     accepted_at: datetime | None
     deadline_at: datetime | None
     finished_at: datetime | None
+
+    @computed_field
+    @property
+    def target(self) -> MissionTarget | None:
+        if self.kind != "road":
+            return None
+        return MissionTarget(lat=self.center_lat, lon=self.center_lon, radius_m=self.radius_m,
+                             day_part=self.target_day_part, window_start_at=self.window_start_at,
+                             window_end_at=self.window_end_at, segment_id=self.road_segment_id,
+                             road_name=self.road_name, road_class=self.road_class)
 
 
 class MissionSyncIn(BaseModel):
@@ -5498,6 +5898,471 @@ def period_dates(start: datetime, end: datetime) -> tuple[date, date]:
 
 
 ################################################################################
+# FICHIER: services/guide.py
+################################################################################
+
+from datetime import datetime, timezone
+
+import h3
+
+from app.core.account_settings import account_settings as acs
+from app.core.config import settings as st
+from app.core.road_settings import road_settings as rs
+from app.services.leaderboard import BADGES, LEVELS
+from app.services.thresholds import build_thresholds
+
+
+# ------------------------------------------------------------------ briques de contenu
+def P(t): return {"type": "p", "text": t}
+def H(t): return {"type": "h", "text": t}
+def L(*items): return {"type": "list", "items": list(items)}
+def S(*steps): return {"type": "steps", "items": [{"title": a, "text": b} for a, b in steps]}
+def C(tone, title, text): return {"type": "callout", "tone": tone, "title": title, "text": text}
+def EX(title, text): return {"type": "example", "title": title, "text": text}
+def FAQ(*qa): return {"type": "faq", "items": [{"q": q, "a": a} for q, a in qa]}
+def F(*facts):
+    return {"type": "facts", "items": [{"label": f[0], "value": f[1], "hint": f[2] if len(f) > 2 else None,
+                                        "live": True} for f in facts]}
+def SC(*rows): return {"type": "scale", "items": [{"label": a, "range": b, "color": c, "hint": d} for a, b, c, d in rows]}
+
+
+def sec(id_, icon, color, title, summary, *blocks):
+    return {"id": id_, "icon": icon, "color": color, "title": title, "summary": summary, "blocks": list(blocks)}
+
+
+def pc(x) -> str: return f"{round(float(x) * 100)} %"
+def mn(m) -> str:
+    m = float(m)
+    return f"{round(m)} min" if m < 120 else f"{m / 60:.0f} h"
+def hh(h) -> str:
+    h = float(h)
+    return f"{round(h)} h" if h < 48 else f"{h / 24:.0f} jours"
+
+
+def build(tenant_settings: dict | None = None, role: str = "contributor") -> dict:
+    th = build_thresholds(tenant_settings)
+    cell_m = int(round(h3.average_hexagon_edge_length(st.H3_RESOLUTION, unit="m"), -1))
+    zone_km = round(h3.average_hexagon_edge_length(st.MISSION_ZONE_H3_RES, unit="km"), 1)
+    parts = (f"matin {st.DAYPART_MORNING_START} h–{st.DAYPART_AFTERNOON_START} h · après-midi "
+             f"{st.DAYPART_AFTERNOON_START} h–{st.DAYPART_EVENING_START} h · soirée "
+             f"{st.DAYPART_EVENING_START} h–{st.DAYPART_NIGHT_START} h · nuit {st.DAYPART_NIGHT_START} h–"
+             f"{st.DAYPART_MORNING_START} h")
+    pw = rs.part_weights
+    sections = []
+
+    # ============================================================ 1. Bienvenue
+    sections.append(sec(
+        "bienvenue", "waving_hand", "#0E9F9A", "Bienvenue sur SunuSound",
+        "Une carte du bruit construite par tous, avec le micro de nos téléphones.",
+        P("SunuSound est une **carte sonore participative**. Chaque personne qui fait une mesure ajoute une "
+          "petite pièce au puzzle. Ensemble, nous voyons où il y a du bruit, à quelle heure, et comment cela évolue."),
+        S(("Vous mesurez", f"Vous appuyez sur « Mesurer » et le téléphone écoute pendant {st.SESSION_DURATION_SECONDS} secondes."),
+          ("Le téléphone calcule", "Il transforme le son en un simple chiffre en décibels. Le son lui-même n'est jamais enregistré ni envoyé."),
+          ("Le serveur vérifie", "Plusieurs contrôles automatiques jugent si la mesure est fiable (GPS, durée, saturation…)."),
+          ("La carte se met à jour", "Les mesures fiables sont mélangées avec celles des autres pour colorer la carte."),
+          ("Vous gagnez des points", "Les bonnes mesures, les missions et les avis rapportent des points, des niveaux et des badges.")),
+        C("tip", "À retenir", "Plus vos mesures sont fiables (bon GPS, téléphone immobile, pas de saturation), "
+                              "plus elles comptent sur la carte et dans votre classement."),
+    ))
+
+    # ============================================================ 2. Mesurer
+    sections.append(sec(
+        "mesurer", "mic", "#0E9F9A", "Faire une mesure",
+        "Ce qui se passe quand vous appuyez sur « Mesurer ».",
+        S(("Avant de commencer", "L'application vérifie vos autorisations (micro, position), la précision du GPS et votre solde de crédits."),
+          ("Pendant la mesure", f"Restez immobile {st.SESSION_DURATION_SECONDS} secondes, téléphone en main, micro dégagé. Un compte à rebours et un cadran en direct s'affichent."),
+          ("Envoi", "Les résultats partent au serveur. Sans réseau, la mesure est gardée dans le téléphone et envoyée plus tard, automatiquement."),
+          ("Évaluation", "En quelques secondes, la mesure devient « Validée », « Indicative » ou « Rejetée ». Vous voyez le score et les raisons.")),
+        H("Ce que le téléphone calcule"),
+        L("**LAeq** : le niveau sonore moyen pendant la mesure, en dB(A). C'est le chiffre principal.",
+          "**Lmax / Lmin** : le moment le plus fort et le plus calme (par tranches de 0,125 seconde).",
+          "**Saturation** : la part du temps où le micro a été « saturé » (son trop fort, déformé).",
+          "**Déplacement** : de combien de mètres vous avez bougé pendant la mesure."),
+        H("Ce qui n'est jamais envoyé"),
+        L("Aucun enregistrement audio, jamais. Le son est analysé puis oublié dans le téléphone.",
+          "Aucune conversation ne peut être reconstituée : seuls quelques chiffres partent."),
+        C("info", "Le « dB(A) »", "Le « A » veut dire que le téléphone corrige le son comme notre oreille l'entend : "
+                                  "les sons graves très faibles comptent moins, les sons médiums comptent plus."),
+        H("Contexte sonore (facultatif)"),
+        P("Vous pouvez indiquer ce que vous entendez : circulation, commerce, chantier, musique, rassemblement ou autre. "
+          "Ces étiquettes aident à comprendre l'origine du bruit dans les analyses."),
+        C("tip", "Pour une mesure réussie", "Attendez que le GPS soit précis (pastille verte), ne marchez pas, ne parlez pas "
+                                            "dans le micro et ne couvrez pas le téléphone avec la main."),
+    ))
+
+    # ============================================================ 3. Lire la carte
+    sections.append(sec(
+        "carte", "map", "#2563EB", "Lire la carte du bruit",
+        "Couleurs, nuage, vent, confiance et historique animé.",
+        P("La carte est **la même pour tout le monde** : elle est calculée par le serveur à partir des mesures de tous "
+          "les contributeurs. Vous voyez donc ce que voient les autres."),
+        SC(("Calme", "moins de 45 dB", "#22C55E", "Bibliothèque, village la nuit"),
+           ("Modéré", "45 à 60 dB", "#FACC15", "Conversation, rue tranquille"),
+           ("Bruyant", "60 à 70 dB", "#F97316", "Circulation régulière"),
+           ("Très bruyant", "70 à 80 dB", "#EF4444", "Rue animée, klaxons, marché"),
+           ("Intense", "80 dB et plus", "#9333EA", "Chantier, concert, grand carrefour")),
+        H("Deux façons de voir"),
+        L("**Nuage** : le bruit est lissé comme une météo. Il se diffuse autour des zones mesurées et est légèrement "
+          "poussé par le vent. C'est indicatif : un nuage n'est pas une mesure exacte en chaque point.",
+          f"**Grille** : la ville est découpée en hexagones d'environ {cell_m} m de côté. Chaque hexagone affiche le niveau de ses mesures."),
+        H("Pourquoi certaines zones sont vides ?"),
+        P(f"Une zone n'apparaît que si **au moins {th.public_min_devices} contributeurs différents** y ont mesuré sur la période. "
+          "C'est une protection de la vie privée : on ne montre pas une zone qui permettrait de deviner qui y a mesuré."),
+        H("L'indice de confiance"),
+        P("Chaque zone a une confiance de 0 à 100 %. Elle monte quand :"),
+        L(f"il y a beaucoup de mesures (objectif : {st.CONF_TARGET_MEASUREMENTS}) ; poids {pc(st.CONF_W_COUNT)}",
+          f"plusieurs personnes ont mesuré (objectif : {st.CONF_TARGET_DEVICES}) ; poids {pc(st.CONF_W_DEVICES)}",
+          f"les téléphones sont calibrés ; poids {pc(st.CONF_W_CALIBRATION)}",
+          f"les mesures sont récentes (la confiance baisse peu à peu, environ {hh(st.CONF_RECENCY_TAU_HOURS)} de demi-vie) ; poids {pc(st.CONF_W_RECENCY)}"),
+        H("Les filtres"),
+        L("**Période** : aujourd'hui, 7 jours, 30 jours.",
+          f"**Plage horaire** : {parts}.",
+          "**Mesures indicatives** : par défaut la carte n'utilise que les mesures validées. Vous pouvez inclure les indicatives."),
+        H("L'historique animé"),
+        P("Le bouton « horloge » rejoue l'évolution du bruit jour par jour ou plage par plage. Une zone sans nouvelle mesure "
+          "reste visible quelques images en s'estompant, pour ne pas clignoter."),
+        C("warn", "Mesures participatives", "Ces mesures sont indicatives et non certifiées. Elles ne remplacent pas "
+                                             "une mesure réglementaire faite avec un sonomètre homologué."),
+    ))
+
+    # ============================================================ 4. Routes
+    sections.append(sec(
+        "routes", "route", "#F59E0B", "Les routes sur la carte",
+        "Le tracé réel des routes, coloré selon le bruit mesuré dessus.",
+        P("En plus des zones, la carte peut afficher **le vrai tracé des routes** (données OpenStreetMap). "
+          "Chaque route est découpée en petits tronçons d'environ "
+          f"{round(rs.ROAD_SEGMENT_TARGET_M)} m. Chaque tronçon a sa propre couleur."),
+        H("Comment une mesure arrive sur une route"),
+        S(("Vous mesurez près d'une route", f"Dans les {round(rs.ROAD_MATCH_MAX_M)} mètres autour de vous, le serveur cherche le tronçon le plus proche."),
+          ("Rattachement automatique", "Le rattachement se fait en arrière-plan, en quelques minutes, sans rien faire de votre côté."),
+          ("Le tronçon se colore", "Comme pour les zones, le niveau du tronçon est la moyenne énergétique de ses mesures fiables.")),
+        C("info", "Vert = pas encore mesuré", "Un tronçon sans mesure est affiché en **vert** (niveau de base). "
+                                               "Cela ne veut pas dire qu'il est silencieux : il n'a simplement pas encore été mesuré."),
+        P("Les routes sont affichées en nuage lumineux comme le reste de la carte (et en traits nets en mode grille). "
+          "Touchez une route pour voir son nom, son type, son niveau et ses mesures par plage horaire."),
+        H("Les types de routes"),
+        L("Autoroutes et nationales, routes principales, secondaires, routes de quartier, routes locales, rues résidentielles.",
+          "Zoomez pour voir les petites rues : à grande échelle, seules les grandes routes sont affichées pour que la carte reste lisible."),
+        F(("Rattachement mesure → route", f"{round(rs.ROAD_MATCH_MAX_M)} m maximum"),
+          ("Longueur d'un tronçon", f"environ {round(rs.ROAD_SEGMENT_TARGET_M)} m")),
+    ))
+
+    # ============================================================ 5. Qualité
+    sections.append(sec(
+        "qualite", "verified", "#16A34A", "Qualité et validation",
+        "Comment le serveur décide qu'une mesure est fiable.",
+        P("Chaque mesure passe un contrôle automatique. Il y a d'abord des **règles éliminatoires**, puis un **score de 0 à 100 %**."),
+        H("Les règles éliminatoires (mesure rejetée)"),
+        F(("Niveau plausible", f"entre {round(st.LAEQ_MIN_DB)} et {round(st.LAEQ_MAX_DB)} dB"),
+          ("GPS trop imprécis", f"au-delà de {round(th.gps_reject_m)} m"),
+          ("Durée utile minimale", f"{pc(th.min_duration_ratio)} de la durée prévue"),
+          ("Saturation maximale", pc(th.max_saturation_ratio), "au-delà, le micro déformait le son"),
+          ("Déplacement maximal", f"{round(th.max_movement_m)} m pendant la mesure"),
+          ("Âge maximal d'une mesure", hh(th.max_age_hours), "envoi hors-ligne inclus"),
+          ("Cohérence Lmin / LAeq / Lmax", "les trois chiffres doivent se tenir"),
+          ("Date dans le futur", "refusée")),
+        H("Le score (6 critères)"),
+        F(("GPS", pc(st.QW_GPS), f"parfait sous {round(th.gps_good_m)} m, puis dégressif"),
+          ("Durée", pc(st.QW_DURATION)),
+          ("Pas de saturation", pc(st.QW_SATURATION)),
+          ("Immobilité", pc(st.QW_MOVEMENT)),
+          ("Téléphone calibré", pc(st.QW_CALIBRATION), f"sinon seulement {pc(th.uncalibrated_subscore)} sur ce critère"),
+          ("Cohérence avec les voisines", pc(st.QW_NEIGHBOR))),
+        H("Les trois statuts"),
+        F(("Validée", f"score ≥ {pc(th.validated_min_score)}", "utilisée sur la carte"),
+          ("Indicative", f"score ≥ {pc(th.indicative_min_score)}", "visible si on active les mesures indicatives"),
+          ("Rejetée", "en dessous, ou règle éliminatoire", "non utilisée")),
+        C("info", "Téléphone non calibré",
+          "Les micros de téléphone ne mesurent pas tous pareil. Un modèle « calibré » a été comparé à un sonomètre de référence "
+          "et reçoit une correction en dB. " +
+          ("Les mesures d'un téléphone non calibré peuvent être validées dans cette organisation."
+           if th.allow_uncalibrated_validated else
+           "Tant que votre modèle n'est pas calibré, vos mesures restent « indicatives » au mieux, même avec un excellent score.")),
+        H("La comparaison avec les voisines"),
+        P(f"Le serveur compare votre niveau à celui des zones voisines, à la même plage horaire, sur les "
+          f"{th.neighbor_window_days} derniers jours. Il faut au moins {th.neighbor_min_samples} mesures voisines pour comparer. "
+          "Un niveau très éloigné de ses voisines est signalé comme « écart important » et ne peut plus être validé automatiquement. "
+          "S'il y a trop peu de voisines, ce critère reste neutre."),
+        H("Qui peut changer une décision ?"),
+        L("**Les analyseurs** : des contributeurs fiables près de la mesure donnent leur avis en direct (voir « Avis des analyseurs »).",
+          "**Un administrateur** : sa décision l'emporte toujours et n'est jamais écrasée par l'automatique."),
+        FAQ(("Pourquoi ma mesure est « rejetée » ?", "Ouvrez-la dans « Mesures » : les raisons sont listées avec un conseil (par exemple « restez immobile »)."),
+            ("Ma mesure est « en évaluation » depuis longtemps ?", "Elle est reprise automatiquement toutes les quelques minutes. Si elle reste bloquée, tirez pour actualiser.")),
+    ))
+
+    # ============================================================ 6. Calcul du bruit
+    sections.append(sec(
+        "calcul", "calculate", "#7C3AED", "Comment le bruit est calculé",
+        "Pourquoi on ne fait pas une moyenne « normale » des décibels.",
+        P("Les décibels ne s'additionnent pas comme des kilos. L'échelle est **logarithmique** : +10 dB, c'est dix fois plus d'énergie sonore."),
+        L("Deux sources identiques de 60 dB ne font pas 120 dB, mais **63 dB** (+3 dB).",
+          "Un bruit de 70 dB est perçu environ deux fois plus fort qu'un bruit de 60 dB."),
+        H("La moyenne énergétique"),
+        P("Pour faire la moyenne de plusieurs mesures, SunuSound ne fait **jamais** la moyenne simple des dB. "
+          "Il transforme chaque niveau en énergie, fait la moyenne pondérée par la durée, puis revient en dB."),
+        EX("Un exemple concret",
+           "Une rue est à **70 dB** le matin et **50 dB** le soir. La moyenne simple donnerait 60 dB, mais la moyenne "
+           "énergétique donne **environ 67 dB** : les moments bruyants pèsent beaucoup plus. C'est cela qu'un riverain ressent vraiment."),
+        H("Ce que contient chaque zone"),
+        S(("Correction", "Chaque mesure reçoit la correction de son modèle de téléphone, si il est calibré."),
+          ("Regroupement", "Les mesures sont regroupées par zone, par jour local (fuseau de Dakar) et par plage horaire."),
+          ("Moyenne énergétique", "Le niveau de la zone est la moyenne énergétique, pondérée par la durée de chaque mesure."),
+          ("Sur la période choisie", "La carte combine les jours et plages que vous avez filtrés.")),
+        F(("Plages horaires", parts), ("Taille d'une zone", f"environ {cell_m} m de côté")),
+        H("Le nuage"),
+        P("Pour le mode « nuage », chaque zone mesurée devient une source qui rayonne autour d'elle (une cloche douce). "
+          "Les sources sont mélangées en énergie et pondérées par leur confiance. Le vent étire le nuage vers l'aval, "
+          "l'atténue vers l'amont et le décale un peu. Loin des mesures, le nuage s'éteint : on ne montre pas ce qu'on ne sait pas."),
+        C("warn", "Le vent animé est une illustration", "Les petites particules et ondes montrent où le vent pousserait le bruit. "
+                                                           "Elles aident à comprendre, mais ne sont pas une mesure."),
+    ))
+
+    # ============================================================ 7. Crédits
+    sections.append(sec(
+        "credits", "bolt", "#F59E0B", "Votre solde de crédits",
+        "Pourquoi on ne peut pas mesurer sans limite, et comment le solde se recharge.",
+        P("Pour que la carte se remplisse **là où on en a besoin** (et pas toujours aux mêmes endroits), "
+          "chaque contributeur a un **solde de crédits**. Chaque mesure en coûte un peu."),
+        F(("Solde de départ", f"{st.QUOTA_INITIAL_BALANCE:g} crédits"),
+          ("Coût d'une mesure", f"de {st.QUOTA_COST_MIN:g} à {st.QUOTA_COST_MAX:g} crédit(s)",
+           "moins cher dans une zone qui manque de mesures"),
+          ("Objectif de recharge par jour", f"de {st.QUOTA_MIN_DAILY:g} à {st.QUOTA_MAX_DAILY:g}"),
+          ("Plafond du solde", f"au moins {st.QUOTA_MIN_CAP:g}, soit {st.QUOTA_CAP_DAYS:g} jours de recharge"),
+          ("Délai avant de remesurer au même endroit", f"de {mn(st.QUOTA_COOLDOWN_MIN_MINUTES)} à {mn(st.QUOTA_COOLDOWN_MAX_MINUTES)}")),
+        H("Comment le solde se recharge"),
+        L("Il se recharge **heure par heure**, plus vite le jour que la nuit (une heure de nuit compte quatre fois moins).",
+          "Il se recharge plus quand le territoire a **besoin** de mesures (peu de mesures récentes).",
+          "Votre objectif du jour dépend de votre **fiabilité**, de la façon dont vous **utilisez** votre solde et de votre taux de **réussite aux missions**."),
+        H("Le solde s'use si on ne s'en sert pas"),
+        P(f"Un solde dormant diminue chaque jour : on conserve entre {pc(st.QUOTA_RETENTION_MIN)} et {pc(st.QUOTA_RETENTION_MAX)} "
+          "du solde d'un jour à l'autre, selon le besoin du territoire et votre activité. Si vous êtes inactif, il fond plus vite. "
+          "Les crédits sont faits pour être utilisés."),
+        H("Zones voisines et délai"),
+        P("Après une mesure, vous devez attendre un peu avant de refaire une mesure au même endroit. Le délai est plus court "
+          "dans les zones qui manquent de mesures. Dans une zone voisine, le délai est de moitié."),
+        H("Mesures gratuites"),
+        L("Une mesure faite pour une **proposition acceptée** ne coûte rien.",
+          "Une mesure faite dans la **zone d'une mission acceptée** ne coûte rien.",
+          "Les administrateurs et analystes du serveur ne sont pas limités."),
+        C("info", "Hors-ligne", f"Une mesure faite sans réseau est jugée à son envoi. Si elle a plus de {mn(st.QUOTA_HARD_TOLERANCE_MINUTES)}, "
+                                "elle n'est pas refusée : le solde peut simplement passer en négatif."),
+        FAQ(("Mon solde est à 0, que faire ?", "Attendez : il se recharge toutes les heures. Les missions donnent aussi des crédits bonus."),
+            ("Pourquoi cette limite ?", "Sans limite, quelques personnes mesureraient toujours aux mêmes endroits. Le solde pousse chacun à mesurer là où cela apporte le plus.")),
+    ))
+
+    # ============================================================ 8. Propositions
+    sections.append(sec(
+        "propositions", "auto_awesome", "#0E9F9A", "Propositions de mesure",
+        "Comment l'application choisit les zones qu'elle vous suggère.",
+        P("Si vous activez la **collecte hybride**, l'application peut vous proposer de mesurer à l'endroit où vous êtes, "
+          "quand cet endroit manque d'informations."),
+        H("Conditions pour recevoir une proposition"),
+        L("Vous avez activé la collecte hybride et donné vos deux autorisations (position, micro).",
+          f"Votre batterie est à plus de {st.MIN_BATTERY_LEVEL} %.",
+          "Vous êtes dans votre créneau du « planning » (jours et heures que vous avez choisis).",
+          f"Pas plus de {st.MAX_PROPOSALS_PER_USER_PER_DAY} propositions par jour et au moins {mn(st.MIN_MINUTES_BETWEEN_PROPOSALS)} entre deux."),
+        H("Comment la zone est notée"),
+        F(("Ancienneté de la dernière mesure", pc(st.W_FRESHNESS), "plus c'est vieux, plus c'est utile"),
+          ("Historique de bruit", pc(st.W_NOISE_HISTORY), "zones bruyantes ou très variables"),
+          ("Manque de couverture", pc(st.W_COVERAGE_GAP), "plages horaires sans mesure"),
+          ("Pertinence de l'heure", pc(st.W_TIME_RELEVANCE), "cette plage horaire est-elle peu mesurée ?"),
+          ("Disponibilité", pc(st.W_AVAILABILITY), "moins on est nombreux sur place, mieux c'est")),
+        P("Ces pourcentages sont les valeurs de départ. **Ils s'ajustent tout seuls** : chaque heure, le système regarde quelles "
+          "propositions ont donné de bonnes mesures dans des zones qui en avaient vraiment besoin, et donne plus de poids aux critères gagnants."),
+        H("La décision"),
+        S(("Note de votre zone", "On calcule la note de la zone où vous êtes."),
+          ("Votre habitude", "Elle est ajustée selon vos réponses passées à cette heure de la journée (accepter ou refuser)."),
+          ("Comparaison", f"Elle doit dépasser {pc(st.PROPOSAL_MIN_SCORE)} et être dans les meilleures zones à {st.CANDIDATE_RING_K} anneaux autour de vous."),
+          ("Exploration", f"Dans {pc(st.EXPLORATION_EPSILON)} des cas, une zone moins prioritaire est proposée pour tester et apprendre.")),
+        F(("Durée de validité", mn(st.PROPOSAL_TTL_MINUTES)), ("Durée de la mesure", f"{st.SESSION_DURATION_SECONDS} s")),
+        C("info", "Ignorer = refuser", "Une proposition qui expire sans réponse compte comme un refus pour l'apprentissage."),
+    ))
+
+    # ============================================================ 9. Missions
+    sections.append(sec(
+        "missions", "flag", "#F59E0B", "Missions",
+        "Des objectifs de mesure précis, en zone ou sur une route, avec une récompense.",
+        P("Une mission est une demande du système : « il manque des mesures ici ». Elle est **proposée**, vous pouvez "
+          "l'accepter ou la refuser. Réussie, elle vous rapporte des **crédits bonus**, des points et des badges."),
+        H("Deux types de missions"),
+        L(f"**Mission de zone** : plusieurs mesures ({st.MISSION_MIN_COUNT} à {st.MISSION_MAX_COUNT}) dans un quartier d'environ {zone_km} km de côté.",
+          "**Mission route** : une mesure en un **point précis d'une vraie route** qui manque de mesures pour une plage horaire donnée."),
+        H("Comment une mission de zone est créée"),
+        S(("Repérage", f"On compare chaque quartier à l'objectif de {st.TARGET_MEASUREMENTS_PER_CELL} mesures par hexagone sur {st.COVERAGE_WINDOW_DAYS} jours."),
+          ("Seuil", f"Un quartier devient « en manque » s'il lui manque au moins {st.MISSION_MIN_ZONE_DEFICIT} mesures et au moins 25 % de son objectif."),
+          ("Choix des personnes", f"Jusqu'à {st.MISSION_USERS_PER_ZONE} personnes proches (moins de {st.MISSION_MAX_RADIUS_KM:g} km de leur dernière position connue)."),
+          ("Taille", "Plus vous êtes actif et fiable, plus la mission peut être grande.")),
+        H("Qui reçoit des missions ?"),
+        F(("Activité (14 jours)", pc(st.MS_W_ACTIVITY), f"objectif : {st.MISSION_ACTIVITY_TARGET} mesures"),
+          ("Fiabilité de vos mesures", pc(st.MS_W_RELIABILITY)),
+          ("Réussite aux missions", pc(st.MS_W_COMPLETION)),
+          ("Taux d'acceptation", pc(st.MS_W_ACCEPTANCE)),
+          ("Score minimum", pc(st.MISSION_MIN_SCORE))),
+        H("Mission route : comment le point est choisi"),
+        S(("Besoin du tronçon", f"Pour chaque route proche, on calcule un besoin : poids de la route (grandes routes = plus de trafic attendu) × poids de la plage horaire × manque de mesures (objectif : {rs.ROAD_TARGET_PER_PART} mesures par plage sur {rs.ROAD_COVERAGE_WINDOW_DAYS} jours)."),
+          ("Plage atteignable", f"Seules les plages qui commencent dans les {rs.ROAD_LOOKAHEAD_HOURS:g} prochaines heures et durent encore au moins {rs.ROAD_MIN_WINDOW_MINUTES} min sont retenues."),
+          ("Choix", f"Les besoins les plus forts, proches de vous (jusqu'à {rs.ROAD_MISSION_MAX_RADIUS_KM:g} km), sont proposés. Deux points proposés sont éloignés d'au moins {round(rs.ROAD_MIN_SPACING_M)} m."),
+          ("Pas de répétition", f"Une même route n'est pas reproposée à la même personne pendant {hh(rs.ROAD_REPEAT_COOLDOWN_HOURS)}.")),
+        F(("Poids des plages horaires", " · ".join(f"{k} {v:g}" for k, v in pw.items()), "la nuit compte moins"),
+          ("Tolérance autour du point", f"{round(rs.ROAD_TARGET_RADIUS_M)} m")),
+        H("Itinéraire"),
+        P("Pour une mission route, le bouton « Itinéraire » trace sur la carte **le chemin réel par les routes**, "
+          "depuis votre position jusqu'au point cible, avec la durée et la distance."),
+        H("Valider une mission"),
+        L("Seules les mesures faites **après l'acceptation** comptent.",
+          f"Mission de zone : mesures dans le cercle de la zone ; mission route : à moins de {round(rs.ROAD_TARGET_RADIUS_M)} m du point, "
+          "**pendant la plage horaire visée** et avant la fin de la fenêtre.",
+          "Les mesures rejetées ne comptent pas. La mission est réussie quand le nombre demandé de mesures est **validé**.",
+          "Pas besoin d'être pile sur le point : la tolérance est là pour cela."),
+        F(("Offre valable", hh(st.MISSION_OFFER_HOURS)),
+          ("Temps pour accomplir (zone)", hh(st.MISSION_COMPLETION_HOURS)),
+          ("Récompense", f"environ {st.MISSION_REWARD_PER_MEASUREMENT:g} crédit par mesure (zone), {rs.ROAD_REWARD_PER_MEASUREMENT:g} (route), plus si le besoin est fort"),
+          ("Missions en cours maximum", f"{st.MISSION_MAX_ACTIVE} acceptées, {st.MISSION_MAX_PENDING} en attente"),
+          ("Après un refus", f"même zone non reproposée pendant {st.MISSION_DECLINE_COOLDOWN_DAYS} jours")),
+        C("tip", "Bonus au-dessus du plafond", "La récompense peut dépasser le plafond de votre solde de 50 %."),
+        FAQ(("Une mission échoue, que perd-on ?", "Rien en crédits, mais votre taux de réussite baisse un peu, ce qui influence les prochaines missions."),
+            ("Le point est dans un endroit inaccessible ?", "Refusez la mission. Elle ne sera pas reproposée avant un moment.")),
+    ))
+
+    # ============================================================ 10. Avis
+    sections.append(sec(
+        "avis", "hearing", "#7C3AED", "Avis des analyseurs",
+        "Des voisins qui confirment, corrigent ou rejettent une mesure en direct.",
+        P("Quand une mesure vient d'être faite, des **analyseurs** proches reçoivent une question simple : "
+          "« ce niveau correspond-il à ce que vous entendez ici et maintenant ? »"),
+        H("Qui peut devenir analyseur ?"),
+        F(("Mesures validées (90 jours)", f"au moins {acs.ANALYST_MIN_VALIDATED}"),
+          ("Missions réussies", f"au moins {acs.ANALYST_MIN_MISSIONS}"),
+          ("Fiabilité", f"au moins {pc(acs.ANALYST_MIN_RELIABILITY)}"),
+          ("Ancienneté du compte", f"au moins {acs.ANALYST_MIN_ACCOUNT_DAYS} jours"),
+          ("Jours d'activité (60 jours)", f"au moins {acs.ANALYST_MIN_ACTIVE_DAYS}"),
+          ("Dernière mesure", f"il y a moins de {acs.ANALYST_MAX_INACTIVE_DAYS} jours")),
+        P("Dans votre profil, la carte « Analyseur » montre votre progression pour chaque condition."),
+        H("Le déroulement"),
+        S(("Envoi", f"La mesure est jugée seulement si elle a moins de {mn(acs.REVIEW_MAX_AGE_MINUTES)}. Jusqu'à {acs.REVIEW_MAX_REVIEWERS} analyseurs à moins de {round(acs.REVIEW_RADIUS_M)} m sont choisis : les plus fiables, les plus proches, les plus souvent d'accord avec le groupe."),
+          ("Réponse", f"Chacun a {mn(acs.REVIEW_TTL_MINUTES)} : « Oui », « Plus faible » ou « Plus fort » (avec l'option « écart important »)."),
+          ("Décision", f"Il faut au moins {acs.REVIEW_MIN_VOTES} réponses, pondérées par la fiabilité des votants.")),
+        F(("Confirmée", f"au moins {pc(acs.REVIEW_CONFIRM_RATIO)} de « oui »"),
+          ("Corrigée", f"si au moins {pc(acs.REVIEW_ADJUST_RATIO)} disent « plus faible » ou « plus fort » : ajustement de {acs.REVIEW_ADJUST_STEP_DB:g} à {acs.REVIEW_ADJUST_MAX_DB:g} dB"),
+          ("Rejetée", f"si l'écart est jugé important (≥ {pc(acs.REVIEW_STRONG_REJECT_SHARE)} de « écart important ») ou si les avis se contredisent"),
+          ("Sans quorum", "moins de réponses que nécessaire : la mesure garde son statut")),
+        H("Et les analyseurs eux-mêmes ?"),
+        L(f"Votre avis est « concordant » s'il va dans le sens de la décision finale : +{acs.LB_PTS_REVIEW:g} points.",
+          f"Si vous êtes d'accord avec le groupe moins de {pc(acs.ANALYST_SUSPEND_AGREEMENT)} du temps (au moins {acs.ANALYST_SUSPEND_MIN_VOTES} avis sur 60 jours), "
+          f"le rôle est suspendu {acs.ANALYST_SUSPEND_DAYS} jours.",
+          "Gardez l'application ouverte : votre position approximative n'est partagée que quelques minutes pour recevoir des demandes."),
+        C("info", "Un administrateur a toujours le dernier mot", "Si un administrateur décide, la demande d'avis est annulée."),
+    ))
+
+    # ============================================================ 11. Points
+    lv = " · ".join(f"{n} ({x} XP)" for x, n in LEVELS)
+    sections.append(sec(
+        "points", "emoji_events", "#DB2777", "Points, niveaux et classement",
+        "Comment votre score est calculé et ce qu'il récompense.",
+        H("Les points"),
+        F(("Mesure validée", f"+{acs.LB_PTS_VALIDATED:g}"), ("Mesure indicative", f"+{acs.LB_PTS_INDICATIVE:g}"),
+          ("Mesure rejetée", f"{acs.LB_PTS_REJECTED:g}"), ("Nouvelle zone couverte", f"+{acs.LB_PTS_CELL:g}"),
+          ("Jour d'activité", f"+{acs.LB_PTS_DAY:g}"), ("Mission réussie", f"+{acs.LB_PTS_MISSION:g}, puis +{acs.LB_PTS_MISSION_UNIT:g} par mesure demandée"),
+          ("Avis concordant", f"+{acs.LB_PTS_REVIEW:g}"), ("Filleul devenu actif", f"+{acs.LB_PTS_INVITE:g}", "il a au moins 3 mesures validées")),
+        H("Le multiplicateur de fiabilité"),
+        P(f"Votre total est multiplié par **0,6 + 0,8 × fiabilité**. La fiabilité = (validées + moitié des indicatives + un petit capital de départ) ÷ (mesures + 5). "
+          f"Elle est donc entre ×0,6 (très peu fiable) et ×1,4 (parfait). **La qualité compte plus que la quantité.**"),
+        EX("Exemple", "20 mesures validées et 0 rejetée → fiabilité haute (environ 90 %) → ×1,3. "
+                      "20 mesures dont 10 rejetées → fiabilité faible (environ 55 %) → ×1,0 et des points perdus."),
+        H("Les périodes"),
+        L("**Semaine**, **Mois** et **Saison (90 jours)**. Le classement se met à jour toutes les 10 minutes.",
+          "Vous pouvez masquer votre rang dans « Modifier le profil » : vous continuez à gagner points et niveaux."),
+        H("Niveaux (XP)"),
+        P("L'XP est la somme de vos points bruts de chaque jour, et ne baisse jamais."),
+        P(lv),
+        H("Badges"),
+        L(*[f"**{lab}** : {desc}" for lab, desc, _i, _t in BADGES.values()]),
+    ))
+
+    # ============================================================ 12. Vie privée
+    sections.append(sec(
+        "vie-privee", "lock", "#0F766E", "Vie privée et vos données",
+        "Ce qui est gardé, pour combien de temps, et ce que les autres voient.",
+        L("**Pas d'audio** : jamais enregistré ni envoyé.",
+          "**E-mail** : stocké uniquement sous forme chiffrée (illisible), aucun mail commercial.",
+          "**Nom, téléphone, ville** : privés, visibles de vous seul. Les autres voient seulement votre **pseudo public**.",
+          "**Administrateurs** : ils voient des mesures anonymisées, jamais les coordonnées ni l'identité."),
+        H("Durées de conservation"),
+        F(("Position précise", f"{st.LOCATION_RETENTION_DAYS} jours, puis remplacée par le centre de la zone"),
+          ("Lien mesure ↔ compte", f"{st.IDENTITY_UNLINK_DAYS} jours, puis supprimé : la mesure devient anonyme"),
+          ("Rapports exportés", f"{st.REPORT_RETENTION_DAYS} jours"),
+          ("Journal d'audit des administrateurs", f"{st.AUDIT_RETENTION_DAYS} jours"),
+          ("Historique de connexions", f"{acs.LOGIN_EVENTS_RETENTION_DAYS} jours")),
+        H("Protections sur la carte"),
+        L(f"Une zone ou une route n'est affichée que si au moins **{th.public_min_devices} personnes différentes** y ont contribué.",
+          "Pour compter les contributeurs, on utilise un jeton qui **change chaque mois** : impossible de vous suivre dans la durée."),
+        H("Vos droits"),
+        L("Retirer l'autorisation de position ou de micro à tout moment (Paramètres).",
+          "Mettre votre participation en pause.",
+          "**Supprimer votre compte** : vos positions sont arrondies, les liens avec vous coupés, puis le compte est effacé."),
+    ))
+
+    # ============================================================ 13. Compte
+    sections.append(sec(
+        "compte", "person", "#2563EB", "Compte, sécurité et invitations",
+        "Mot de passe, codes de récupération, sessions et parrainage.",
+        H("Mot de passe"),
+        L(f"Au moins {st.PASSWORD_MIN_LENGTH} caractères avec lettres et chiffres, et trois types de caractères (ou 14 caractères et plus).",
+          "Refusé : mots de passe trop courants ou contenant votre pseudo ou votre nom."),
+        H("Codes de récupération"),
+        P(f"À l'inscription, vous recevez **{acs.RECOVERY_CODES_COUNT} codes** à garder en lieu sûr. Comme votre e-mail n'est pas stocké en clair, "
+          "aucun mail de réinitialisation n'est possible : un code, utilisable une seule fois, permet de changer le mot de passe. "
+          "Vous pouvez en générer de nouveaux depuis votre profil (les anciens sont alors annulés)."),
+        H("Protection contre les attaques"),
+        L(f"Après {st.LOGIN_MAX_ATTEMPTS} échecs, le compte est bloqué {mn(st.LOGIN_LOCK_SECONDS / 60)}.",
+          "Vous voyez vos dernières connexions, vos sessions ouvertes et vos appareils dans le profil.",
+          "« Déconnecter partout » ferme toutes les sessions."),
+        H("Invitations"),
+        F(("Codes actifs par personne", f"{acs.INVITE_USER_MAX_ACTIVE}"), ("Utilisations par code", f"{acs.INVITE_USER_MAX_USES}"),
+          ("Validité d'un code", f"{acs.INVITE_USER_TTL_DAYS} jours"),
+          ("Inscription sur invitation", "obligatoire" if acs.INVITE_REQUIRED else "facultative")),
+        P(f"Vous gagnez {acs.LB_PTS_INVITE:g} points quand une personne invitée devient active."),
+    ))
+
+    # ============================================================ staff
+    if role != "contributor":
+        sections.append(sec(
+            "equipe", "admin", "#475569", "Espace équipe",
+            "Pour les administrateurs et analystes du serveur.",
+            L("**Validation** : file des mesures, filtres par score, statut et raison ; décisions groupées (admin).",
+              "**Statistiques** : qualité par jour, raisons de rejet, quota, classement des utilisateurs actifs.",
+              "**Routes** : avancement de l'import, couverture, et liste des routes qui manquent le plus de mesures.",
+              "**Calibration** : l'ajout d'une correction à un modèle de téléphone réévalue ses mesures récentes."),
+        ))
+
+    # ============================================================ FAQ + glossaire
+    sections.append(sec(
+        "faq", "help", "#64748B", "Questions fréquentes",
+        "Réponses courtes aux questions les plus posées.",
+        FAQ(("Pourquoi mon niveau est différent de celui de mon voisin ?", "Les micros diffèrent, la position et le moment aussi. C'est pour cela que la carte moyenne beaucoup de mesures."),
+            ("Puis-je mesurer en intérieur ?", "Techniquement oui, mais le GPS est moins précis et la mesure peut être rejetée. L'idéal est l'extérieur."),
+            ("Pourquoi ma mesure est « indicative » ?", "Souvent parce que le modèle de téléphone n'est pas calibré, ou que le score est juste sous le seuil des mesures validées."),
+            ("Ça consomme de la batterie ?", f"Une mesure dure {st.SESSION_DURATION_SECONDS} secondes, c'est négligeable. Les propositions interrogent votre position seulement application ouverte."),
+            ("Ça consomme des données mobiles ?", "Très peu : quelques chiffres par mesure. Les fonds de carte sont la plus grosse part."),
+            ("Les routes sont vertes partout ?", "Normal au début : vert veut dire « pas encore mesuré ». Les routes se colorent au fil des mesures."),
+            ("Pourquoi une zone disparaît de la carte ?", f"Elle n'a plus assez de contributeurs différents sur la période choisie (minimum {th.public_min_devices}). Élargissez la période."),
+            ("Je n'ai pas reçu de proposition ?", "Vérifiez : collecte hybride activée, planning actif, batterie suffisante, autorisations accordées, et limites quotidiennes.")),
+        H("Petit glossaire"),
+        L("**dB(A)** : décibel pondéré pour ressembler à l'oreille humaine.", "**LAeq** : niveau moyen (énergétique) sur la durée de la mesure.",
+          "**Lmax / Lmin** : niveaux le plus fort et le plus faible.", "**Hexagone / zone** : case de la carte d'environ " + f"{cell_m} m.",
+          "**Calibration** : correction d'un modèle de téléphone par comparaison à un sonomètre.", "**Plage horaire** : matin, après-midi, soirée, nuit.",
+          "**Indicative** : mesure utilisable mais moins sûre.", "**Tronçon** : petit morceau de route d'environ " + f"{round(rs.ROAD_SEGMENT_TARGET_M)} m.",
+          "**Analyseur** : contributeur fiable qui donne son avis sur les mesures proches."),
+    ))
+
+    return {"title": "Guide SunuSound",
+            "subtitle": "Tout comprendre : mesures, carte, routes, missions, points et vie privée.",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "note": "Les valeurs marquées d'un point vert sont celles réellement utilisées par le serveur aujourd'hui.",
+            "sections": sections}
+
+
+################################################################################
 # FICHIER: services/impact.py
 ################################################################################
 
@@ -6178,12 +7043,14 @@ from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.road_settings import road_settings as rs
 from app.models.enums import MissionStatus, QualityStatus
 from app.models.geo import GeographicCell, NoiseAggregation
 from app.models.measurement import Measurement
 from app.models.quota import Mission
 from app.models.tenancy import User, UserConsent
 from app.services import quota as quota_service
+from app.services import road_missions
 from app.services.acoustics import clamp01
 from app.services.geo import TZ
 
@@ -6256,11 +7123,12 @@ async def zone_deficits(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID, no
 
 
 async def _committed(db: AsyncSession, tenant_id: uuid.UUID, now: datetime):
+    """Engagements sur les missions de zone uniquement (les missions routes ont leur propre logique)."""
     committed: dict[str, int] = defaultdict(int)
     pairs: set = set()
     rows = (await db.execute(select(Mission.zone_h3, Mission.user_id, Mission.status, Mission.required_count,
                                     Mission.done_count, Mission.created_at).where(
-        Mission.tenant_id == tenant_id,
+        Mission.tenant_id == tenant_id, Mission.kind == "zone",
         or_(Mission.status.in_(_ACTIVE),
             Mission.created_at >= now - timedelta(days=settings.MISSION_DECLINE_COOLDOWN_DAYS))))).all()
     for zone, uid, st, req, done, _ in rows:
@@ -6331,7 +7199,7 @@ async def profiles(db: AsyncSession, tenant_id: uuid.UUID, now: datetime,
     return out
 
 
-# ------------------------------------------------------------------ affectation
+# ------------------------------------------------------------------ affectation (missions de zone)
 
 async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], profs: dict[uuid.UUID, Profile],
                   now: datetime, max_new: int) -> list[Mission]:
@@ -6365,7 +7233,7 @@ async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], pro
             size = mn + (mx - mn) * p.score * (0.6 + 0.4 * z.need)
             size = int(max(mn, min(round(size), math.ceil(remaining), mx)))
             db.add(m := Mission(
-                tenant_id=tenant_id, user_id=uid, status=MissionStatus.offered, zone_h3=z.zone_id,
+                tenant_id=tenant_id, user_id=uid, kind="zone", status=MissionStatus.offered, zone_h3=z.zone_id,
                 center_lat=z.lat, center_lon=z.lon, radius_m=z.radius_m, distance_km=round(d_km, 1),
                 required_count=size, done_count=0, confirmed_count=0,
                 reward_credits=round(size * settings.MISSION_REWARD_PER_MEASUREMENT * (0.75 + 0.5 * z.need), 1),
@@ -6385,10 +7253,17 @@ async def _assign(db: AsyncSession, tenant_id: uuid.UUID, zones: list[Zone], pro
 async def generate_for_tenant(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID) -> int:
     now = datetime.now(timezone.utc)
     zones = await zone_deficits(db, redis, tenant_id, now)
-    if not zones:
-        return 0
     profs = await profiles(db, tenant_id, now)
-    return len(await _assign(db, tenant_id, zones, profs, now, settings.MISSION_MAX_NEW_PER_USER_PER_RUN))
+    if not profs:
+        return 0
+    created: list[Mission] = []
+    if zones:
+        created = await _assign(db, tenant_id, zones, profs, now, settings.MISSION_MAX_NEW_PER_USER_PER_RUN)
+        for m in created:
+            profs[m.user_id].load += 1
+    if rs.ROAD_MISSIONS_ENABLED:
+        created += await road_missions.assign(db, tenant_id, profs, now, rs.ROAD_MAX_NEW_PER_USER_PER_RUN)
+    return len(created)
 
 
 async def sync_for_user(db: AsyncSession, redis: Redis, user: User, lat: float, lon: float) -> None:
@@ -6400,10 +7275,14 @@ async def sync_for_user(db: AsyncSession, redis: Redis, user: User, lat: float, 
     zones = await zone_deficits(db, redis, user.tenant_id, now)
     profs = await profiles(db, user.tenant_id, now, only=[user.id])
     p = profs.get(user.id)
-    if p is None or not zones:
+    if p is None:
         return
     p.anchor = (lat, lon)
-    await _assign(db, user.tenant_id, zones, {user.id: p}, now, max_new=2)
+    if zones:
+        created = await _assign(db, user.tenant_id, zones, {user.id: p}, now, max_new=2)
+        p.load += len(created)
+    if rs.ROAD_MISSIONS_ENABLED:
+        await road_missions.assign(db, user.tenant_id, {user.id: p}, now, rs.ROAD_SYNC_MAX_NEW)
 
 
 async def ranking(db: AsyncSession, tenant_id: uuid.UUID, limit: int = 50) -> list[dict]:
@@ -6427,7 +7306,8 @@ async def expire(db: AsyncSession, tenant_id: uuid.UUID) -> int:
 
 
 async def reconcile(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> int:
-    """Recalcule la progression depuis les mesures réelles ; clôture (réussite + récompense, ou échec)."""
+    """Recalcule la progression depuis les mesures réelles ; clôture (réussite + récompense, ou échec).
+    Mission route : mesures dans la tolérance du point cible, dans la plage horaire et la fenêtre visées."""
     now = datetime.now(timezone.utc)
     conds = [Mission.tenant_id == tenant_id, Mission.status == MissionStatus.accepted]
     if user_id:
@@ -6436,11 +7316,20 @@ async def reconcile(db: AsyncSession, tenant_id: uuid.UUID, user_id: uuid.UUID |
     for m in missions:
         dist = func.ST_DistanceSphere(Measurement.geom,
                                       func.ST_SetSRID(func.ST_MakePoint(m.center_lon, m.center_lat), 4326))
+        since = m.accepted_at
+        if m.window_start_at is not None and m.window_start_at > since:
+            since = m.window_start_at
+        mconds = [Measurement.tenant_id == tenant_id, Measurement.user_id == m.user_id,
+                  Measurement.measured_at >= since, Measurement.quality_status != QualityStatus.rejected,
+                  dist <= m.radius_m]
+        if m.kind == "road":
+            if m.target_day_part is not None:
+                mconds.append(Measurement.day_part == m.target_day_part)
+            if m.window_end_at is not None:
+                mconds.append(Measurement.measured_at <= m.window_end_at)
         total, ok = (await db.execute(select(
             func.count(), func.coalesce(func.sum(case((Measurement.quality_status.in_(_USABLE), 1), else_=0)), 0)
-        ).where(Measurement.tenant_id == tenant_id, Measurement.user_id == m.user_id,
-                Measurement.measured_at >= m.accepted_at, Measurement.quality_status != QualityStatus.rejected,
-                dist <= m.radius_m))).one()
+        ).where(*mconds))).one()
         m.done_count, m.confirmed_count = int(total), int(ok)
         if m.confirmed_count >= m.required_count:
             m.status, m.finished_at = MissionStatus.completed, now
@@ -6472,6 +7361,8 @@ async def respond(db: AsyncSession, user: User, mission_id: uuid.UUID, accept: b
             raise HTTPException(409, "mission_limit_reached")
         m.status, m.accepted_at = MissionStatus.accepted, now
         m.deadline_at = now + timedelta(hours=settings.MISSION_COMPLETION_HOURS)
+        if m.window_end_at is not None:                    # mission route : jamais au-delà de la plage visée
+            m.deadline_at = min(m.deadline_at, m.window_end_at)
     else:
         m.status, m.finished_at = MissionStatus.declined, now
     await db.commit()
@@ -7718,6 +8609,775 @@ async def analysts_admin(db: AsyncSession, tenant_id: uuid.UUID) -> list[dict]:
 
 
 ################################################################################
+# FICHIER: services/road_missions.py
+################################################################################
+
+import math
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime, time, timedelta, timezone
+
+import h3
+from sqlalchemy import or_, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.road_settings import road_settings as rs
+from app.models.enums import DayPart, MissionStatus
+from app.models.quota import Mission
+from app.services.acoustics import clamp01
+from app.services.geo import TZ, to_local
+from app.services.quota import haversine_m
+
+_ACTIVE = (MissionStatus.offered, MissionStatus.accepted)
+
+_CAND = text("""
+SELECT s.id, s.highway, s.name, s.ref, s.road_rank, s.class_weight, s.length_m, s.mid_lat, s.mid_lon
+FROM road_segments s
+WHERE s.active AND s.road_rank <= :max_rank
+  AND ST_DWithin(s.geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :deg)
+ORDER BY s.class_weight DESC, s.length_m DESC
+LIMIT :lim""")
+
+_COUNTS = text("""
+SELECT m.road_segment_id, m.day_part, count(*) AS n
+FROM measurements m JOIN road_segments s ON s.id = m.road_segment_id
+WHERE m.tenant_id = :tid AND m.measured_at >= :since AND m.quality_status IN ('validated', 'indicative')
+  AND s.active AND s.road_rank <= :max_rank
+  AND ST_DWithin(s.geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :deg)
+GROUP BY m.road_segment_id, m.day_part""")
+
+
+@dataclass
+class Candidate:
+    id: uuid.UUID
+    highway: str
+    name: str | None
+    ref: str | None
+    rank: int
+    weight: float
+    length_m: float
+    lat: float
+    lon: float
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+# ------------------------------------------------------------------ créneaux horaires
+
+def _bounds() -> dict[str, tuple[int, int]]:
+    return {"morning": (settings.DAYPART_MORNING_START, settings.DAYPART_AFTERNOON_START),
+            "afternoon": (settings.DAYPART_AFTERNOON_START, settings.DAYPART_EVENING_START),
+            "evening": (settings.DAYPART_EVENING_START, settings.DAYPART_NIGHT_START),
+            "night": (settings.DAYPART_NIGHT_START, settings.DAYPART_MORNING_START)}
+
+
+def next_window(now: datetime, part: str) -> tuple[datetime, datetime]:
+    """Créneau en cours ou prochain créneau de la plage horaire (UTC)."""
+    local = to_local(now)
+    s_h, e_h = _bounds()[part]
+    for off in (-1, 0, 1):
+        d0 = local.date() + timedelta(days=off)
+        start = datetime.combine(d0, time(s_h), TZ)
+        end = datetime.combine(d0 + timedelta(days=1 if e_h <= s_h else 0), time(e_h), TZ)
+        if end > local:
+            return max(start, local).astimezone(timezone.utc), end.astimezone(timezone.utc)
+    raise RuntimeError("window_not_found")
+
+
+def eligible_windows(now: datetime) -> dict[str, tuple[datetime, datetime]]:
+    out = {}
+    for part in _bounds():
+        start, end = next_window(now, part)
+        if start - now > timedelta(hours=rs.ROAD_LOOKAHEAD_HOURS):
+            continue
+        if end - max(start, now) < timedelta(minutes=rs.ROAD_MIN_WINDOW_MINUTES):
+            continue
+        out[part] = (start, end)
+    return out
+
+
+# ------------------------------------------------------------------ besoins
+
+def slots(c: Candidate, wins: dict) -> list[tuple[float, str]]:
+    """Besoin de mesure (0-1) du tronçon pour chaque plage encore atteignable, du plus fort au plus faible."""
+    pw = rs.part_weights
+    out = []
+    for part in wins:
+        gap = clamp01(1.0 - c.counts.get(part, 0) / max(1, rs.ROAD_TARGET_PER_PART))
+        need = c.weight * pw.get(part, 1.0) * gap
+        if need >= rs.ROAD_MIN_NEED:
+            out.append((need, part))
+    out.sort(reverse=True)
+    return out
+
+
+def _deg(radius_m: float) -> float:
+    return radius_m / 111320.0 * 1.6
+
+
+async def load_candidates(db: AsyncSession, tenant_id: uuid.UUID, lat: float, lon: float, radius_km: float,
+                          now: datetime) -> list[Candidate]:
+    p = {"max_rank": rs.ROAD_MISSION_MAX_RANK, "lat": lat, "lon": lon, "deg": _deg(radius_km * 1000)}
+    rows = (await db.execute(_CAND, {**p, "lim": rs.ROAD_CANDIDATE_LIMIT})).all()
+    cands = {r[0]: Candidate(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows}
+    if not cands:
+        return []
+    since = now - timedelta(days=rs.ROAD_COVERAGE_WINDOW_DAYS)
+    for sid, part, n in (await db.execute(_COUNTS, {**p, "tid": tenant_id, "since": since})).all():
+        c = cands.get(sid)
+        if c is not None:
+            c.counts[str(part)] = int(n)
+    return list(cands.values())
+
+
+# ------------------------------------------------------------------ affectation
+
+def _make(tenant_id, p, c: Candidate, part: str, win, d_km: float, need: float, fit: float) -> Mission:
+    start, end = win
+    reward = round(rs.ROAD_MISSION_COUNT * rs.ROAD_REWARD_PER_MEASUREMENT * (0.75 + 0.5 * need)
+                   * (0.8 + 0.4 * c.weight), 1)
+    return Mission(
+        tenant_id=tenant_id, user_id=p.user_id, kind="road", status=MissionStatus.offered,
+        zone_h3=h3.latlng_to_cell(c.lat, c.lon, settings.MISSION_ZONE_H3_RES),
+        center_lat=c.lat, center_lon=c.lon, radius_m=rs.ROAD_TARGET_RADIUS_M, distance_km=round(d_km, 1),
+        required_count=rs.ROAD_MISSION_COUNT, done_count=0, confirmed_count=0, reward_credits=reward,
+        priority=round(100 * clamp01(0.65 * need + 0.35 * fit), 1),
+        features={"segment_need": round(need, 3), "fit": round(fit, 3), "score": round(p.score, 3),
+                  "length_m": c.length_m},
+        road_segment_id=c.id, road_name=c.name or c.ref, road_class=c.highway, target_day_part=DayPart(part),
+        window_start_at=start, window_end_at=end, offer_expires_at=end)
+
+
+async def assign(db: AsyncSession, tenant_id: uuid.UUID, profs: dict, now: datetime, max_new: int) -> list[Mission]:
+    """Propose à chaque utilisateur (position connue) des points précis sur des routes qui manquent de mesures
+    pour une plage horaire atteignable. Les profils sont typés comme missions.Profile (user_id, anchor, score, load)."""
+    elig = [p for p in profs.values() if p.anchor is not None and p.score >= settings.MISSION_MIN_SCORE]
+    wins = eligible_windows(now)
+    if not elig or not wins:
+        return []
+    rows = (await db.execute(select(Mission.user_id, Mission.road_segment_id, Mission.target_day_part,
+                                    Mission.status).where(
+        Mission.tenant_id == tenant_id, Mission.kind == "road",
+        or_(Mission.status.in_(_ACTIVE),
+            Mission.created_at >= now - timedelta(hours=rs.ROAD_REPEAT_COOLDOWN_HOURS))))).all()
+    committed: set = set()
+    pairs: set = set()
+    road_load: dict = defaultdict(int)
+    for uid, sid, part, st in rows:
+        pairs.add((uid, sid))
+        if st in _ACTIVE:
+            committed.add((sid, part.value if part else None))
+            road_load[uid] += 1
+
+    radius_km = rs.ROAD_MISSION_MAX_RADIUS_KM
+    edge_km = h3.average_hexagon_edge_length(rs.ROAD_GROUP_H3_RES, unit="km")
+    cache: dict = {}
+    created: list[Mission] = []
+    for p in sorted(elig, key=lambda x: x.score, reverse=True)[:rs.ROAD_MAX_USERS_PER_RUN]:
+        uid = p.user_id
+        cap = min(max_new, rs.ROAD_MAX_PENDING_PER_USER - road_load[uid], settings.MISSION_MAX_PENDING - p.load)
+        if cap <= 0:
+            continue
+        gk = h3.latlng_to_cell(p.anchor[0], p.anchor[1], rs.ROAD_GROUP_H3_RES)
+        if gk not in cache:                                    # une requête par groupe de proximité
+            clat, clon = h3.cell_to_latlng(gk)
+            cands = await load_candidates(db, tenant_id, clat, clon, radius_km + edge_km + 0.5, now)
+            cache[gk] = [(c, s) for c in cands if (s := slots(c, wins))]
+        ranked = []
+        for c, sl in cache[gk]:
+            if (uid, c.id) in pairs:
+                continue
+            pick = next(((n, part) for n, part in sl if (c.id, part) not in committed), None)
+            if pick is None:
+                continue
+            d_km = haversine_m(p.anchor[0], p.anchor[1], c.lat, c.lon) / 1000
+            if d_km > radius_km:
+                continue
+            need, part = pick
+            fit = (1 - d_km / radius_km) ** 0.7
+            ranked.append((need * (0.35 + 0.65 * fit) * (0.6 + 0.4 * p.score), need, fit, c, part, d_km))
+        ranked.sort(key=lambda t: t[0], reverse=True)
+        chosen: list[Candidate] = []
+        for _, need, fit, c, part, d_km in ranked:
+            if len(chosen) >= cap:
+                break
+            if (c.id, part) in committed:
+                continue
+            if any(haversine_m(c.lat, c.lon, o.lat, o.lon) < rs.ROAD_MIN_SPACING_M for o in chosen):
+                continue
+            chosen.append(c)
+            created.append(_make(tenant_id, p, c, part, wins[part], d_km, need, fit))
+            committed.add((c.id, part))
+            pairs.add((uid, c.id))
+            road_load[uid] += 1
+            p.load += 1
+    if created:
+        db.add_all(created)
+        await db.flush()
+    return created
+
+
+async def needs_near(db: AsyncSession, tenant_id: uuid.UUID, lat: float, lon: float, radius_km: float,
+                     limit: int) -> list[dict]:
+    """Vue admin : routes qui manquent le plus de mesures autour d'un point, avec la plage conseillée."""
+    now = datetime.now(timezone.utc)
+    wins = eligible_windows(now)
+    out = []
+    for c in await load_candidates(db, tenant_id, lat, lon, radius_km, now):
+        sl = slots(c, wins)
+        d = haversine_m(lat, lon, c.lat, c.lon)
+        if not sl or d > radius_km * 1000:
+            continue
+        need, part = sl[0]
+        out.append({"segment_id": str(c.id), "name": c.name or c.ref, "highway": c.highway, "rank": c.rank,
+                    "lat": c.lat, "lon": c.lon, "distance_m": round(d), "need": round(need, 3),
+                    "best_day_part": part, "window_start_at": wins[part][0], "window_end_at": wins[part][1],
+                    "counts_by_day_part": c.counts})
+    out.sort(key=lambda r: r["need"], reverse=True)
+    return out[:limit]
+
+
+################################################################################
+# FICHIER: services/roads.py
+################################################################################
+
+import hashlib
+import json
+import logging
+import math
+import uuid
+from datetime import datetime, timedelta, timezone
+
+import h3
+import httpx
+from fastapi import HTTPException
+from redis.asyncio import Redis
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.road_settings import road_settings as rs
+from app.models.enums import QualityStatus
+from app.models.measurement import Measurement
+from app.models.roads import RoadImportTile, RoadSegment
+from app.schemas.schemas import TimeFilter
+from app.services.acoustics import clamp01
+from app.services.geo import resolve_period
+from app.services.map import _agg_cols, _conditions, confidence_of, statuses
+
+log = logging.getLogger(__name__)
+
+_NS = uuid.UUID("a3c1f0de-7a55-4b1e-8d52-3f6f6f1e9a10")
+_USABLE = [QualityStatus.validated, QualityStatus.indicative]
+
+# highway -> (rang, poids de trafic attendu)
+HIGHWAYS: dict[str, tuple[int, float]] = {
+    "motorway": (1, 1.0), "motorway_link": (1, 0.8), "trunk": (1, 0.95), "trunk_link": (1, 0.75),
+    "primary": (2, 0.85), "primary_link": (2, 0.65), "secondary": (3, 0.7), "secondary_link": (3, 0.55),
+    "tertiary": (4, 0.55), "tertiary_link": (4, 0.45), "unclassified": (5, 0.4),
+    "residential": (6, 0.3), "living_street": (6, 0.15), "service": (6, 0.12),
+}
+
+
+class OverpassBusy(Exception):
+    pass
+
+
+class OverpassTooHeavy(Exception):
+    pass
+
+
+# ------------------------------------------------------------------ géométrie
+
+def segment_uuid(way_id: int, seq: int) -> uuid.UUID:
+    return uuid.uuid5(_NS, f"{way_id}:{seq}")
+
+
+def _hav(a: tuple[float, float], b: tuple[float, float]) -> float:
+    la1, lo1, la2, lo2 = (math.radians(v) for v in (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 2 * 6371000.0 * math.asin(math.sqrt(h))
+
+
+def split_way(pts: list[tuple[float, float]], target_m: float, min_m: float) -> list[tuple[int, int, float]]:
+    """Découpe une route en tronçons coupés sur de vrais sommets (la connectivité est conservée)."""
+    n = len(pts)
+    if n < 2:
+        return []
+    steps = [_hav(pts[i], pts[i + 1]) for i in range(n - 1)]
+    cuts, acc = [0], 0.0
+    for i in range(1, n):
+        acc += steps[i - 1]
+        if acc >= target_m and i < n - 1:
+            cuts.append(i)
+            acc = 0.0
+    cuts.append(n - 1)
+    if len(cuts) > 2 and sum(steps[cuts[-2]:cuts[-1]]) < min_m:
+        cuts.pop(-2)                                        # le petit reste est fusionné au tronçon précédent
+    return [(a, b, sum(steps[a:b])) for a, b in zip(cuts, cuts[1:])]
+
+
+def _point_along(pts: list[tuple[float, float]], frac: float) -> tuple[float, float]:
+    steps = [_hav(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+    target, acc = sum(steps) * frac, 0.0
+    for k, s in enumerate(steps):
+        if s > 0 and acc + s >= target:
+            t = (target - acc) / s
+            return (pts[k][0] + (pts[k + 1][0] - pts[k][0]) * t, pts[k][1] + (pts[k + 1][1] - pts[k][1]) * t)
+        acc += s
+    return pts[-1]
+
+
+def rows_from_elements(elements: list[dict], now: datetime) -> tuple[list[dict], list[int]]:
+    allowed = set(rs.highways)
+    rows: list[dict] = []
+    way_ids: list[int] = []
+    for el in elements:
+        if el.get("type") != "way":
+            continue
+        tags = el.get("tags") or {}
+        hw = tags.get("highway")
+        if hw not in allowed or hw not in HIGHWAYS or tags.get("area") == "yes":
+            continue
+        geom, nodes = el.get("geometry") or [], el.get("nodes") or []
+        if len(geom) != len(nodes):
+            continue
+        pts, nds = [], []
+        for g, nid in zip(geom, nodes):
+            if g:
+                pts.append((g["lat"], g["lon"]))
+                nds.append(int(nid))
+        if len(pts) < 2:
+            continue
+        rank, weight = HIGHWAYS[hw]
+        way_id = int(el["id"])
+        way_ids.append(way_id)
+        name = (tags.get("name") or "").strip()[:160] or None
+        ref = (tags.get("ref") or "").strip()[:60] or None
+        oneway = tags.get("oneway") in ("yes", "true", "1") or tags.get("junction") == "roundabout"
+        maxspeed = (tags.get("maxspeed") or "")[:20] or None
+        try:
+            lanes = int(str(tags.get("lanes", "")).split(";")[0])
+        except ValueError:
+            lanes = None
+        lanes = lanes if lanes and 0 < lanes <= 20 else None
+        for seq, (a, b, length) in enumerate(split_way(pts, rs.ROAD_SEGMENT_TARGET_M, rs.ROAD_SEGMENT_MIN_M)):
+            sub = pts[a:b + 1]
+            if length < 1.0:
+                continue
+            mlat, mlon = _point_along(sub, 0.5)
+            rows.append({
+                "id": segment_uuid(way_id, seq), "osm_way_id": way_id, "seq": seq,
+                "start_node": nds[a], "end_node": nds[b], "highway": hw, "road_rank": rank,
+                "class_weight": weight, "name": name, "ref": ref, "oneway": oneway, "maxspeed": maxspeed,
+                "lanes": lanes, "length_m": round(length, 1), "mid_lat": mlat, "mid_lon": mlon,
+                "h3_index": h3.latlng_to_cell(mlat, mlon, settings.H3_RESOLUTION),
+                "wkt": "LINESTRING(" + ",".join(f"{lo:.6f} {la:.6f}" for la, lo in sub) + ")",
+                "imported_at": now})
+    return rows, way_ids
+
+
+# ------------------------------------------------------------------ Overpass
+
+def build_query(bbox: tuple[float, float, float, float]) -> str:
+    w, s, e, n = bbox
+    hw = "|".join(rs.highways)
+    area = flt = ""
+    if rs.ROAD_COUNTRY_ISO:
+        area = f'area["ISO3166-1"="{rs.ROAD_COUNTRY_ISO}"][admin_level=2]->.a;'
+        flt = "(area.a)"
+    return (f"[out:json][timeout:{rs.ROAD_OVERPASS_TIMEOUT_SECONDS}];{area}"
+            f'way["highway"~"^({hw})$"]({s},{w},{n},{e}){flt};out body geom;')
+
+
+async def fetch_overpass(bbox: tuple[float, float, float, float]) -> dict:
+    query = build_query(bbox)
+    last: Exception = OverpassBusy("no_endpoint")
+    headers = {"User-Agent": "SunuSound/1.0 (road network import)"}
+    async with httpx.AsyncClient(timeout=rs.ROAD_HTTP_TIMEOUT_SECONDS, headers=headers) as client:
+        for url in rs.urls:
+            try:
+                r = await client.post(url, data={"data": query})
+            except httpx.HTTPError as exc:
+                last = OverpassBusy(type(exc).__name__)
+                continue
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                except ValueError:
+                    last = OverpassBusy("bad_json")
+                    continue
+                remark = str(data.get("remark") or "").lower()
+                if "runtime error" in remark or "out of memory" in remark or "timed out" in remark:
+                    raise OverpassTooHeavy(remark[:120])
+                return data
+            last = OverpassBusy(f"http_{r.status_code}")
+    raise last
+
+
+# ------------------------------------------------------------------ tuiles d'import
+
+def tile_key(b: tuple[float, float, float, float]) -> str:
+    return f"{b[0]:.5f}_{b[1]:.5f}_{b[2]:.5f}_{b[3]:.5f}"
+
+
+async def plan_tiles(db: AsyncSession) -> int:
+    w0, s0, e0, n0 = rs.bbox
+    step = rs.ROAD_TILE_SIZE_DEG
+    now = datetime.now(timezone.utc)
+    rows = []
+    x = w0
+    while x < e0 - 1e-9:
+        y = s0
+        while y < n0 - 1e-9:
+            b = (round(x, 5), round(y, 5), round(min(x + step, e0), 5), round(min(y + step, n0), 5))
+            rows.append({"key": tile_key(b), "west": b[0], "south": b[1], "east": b[2], "north": b[3],
+                         "size_deg": step, "status": "pending", "attempts": 0, "updated_at": now})
+            y += step
+        x += step
+    for i in range(0, len(rows), 500):
+        await db.execute(pg_insert(RoadImportTile).values(rows[i:i + 500]).on_conflict_do_nothing(
+            index_elements=["key"]))
+    await db.commit()
+    return len(rows)
+
+
+async def network_ready(db: AsyncSession) -> bool:
+    total, open_ = (await db.execute(
+        select(func.count(), func.count().filter(RoadImportTile.status.in_(("pending", "queued", "running", "failed"))))
+        .select_from(RoadImportTile))).one()
+    return int(total) > 0 and int(open_) == 0
+
+
+async def version(redis: Redis) -> int:
+    return int(await redis.get("roads:version") or 0)
+
+
+async def ensure_network(db: AsyncSession, redis: Redis, force: bool = False) -> dict:
+    """Planifie l'import au premier lancement, puis relance les tuiles en attente, échouées ou bloquées."""
+    total = (await db.execute(select(func.count()).select_from(RoadImportTile))).scalar_one()
+    if total == 0:
+        if not rs.ROAD_AUTO_IMPORT and not force:
+            return {"status": "disabled", "queued": []}
+        planned = await plan_tiles(db)
+        log.info("roads_import_planned", extra={"task": f"tiles={planned}"})
+    now = datetime.now(timezone.utc)
+    stale = now - timedelta(minutes=rs.ROAD_STALE_MINUTES)
+    retry_failed = now - timedelta(hours=6)
+    tiles = (await db.execute(select(RoadImportTile).where(RoadImportTile.status.in_(
+        ("pending", "failed", "queued", "running"))).order_by(RoadImportTile.key))).scalars().all()
+    keys: list[str] = []
+    for t in tiles:
+        if t.status == "failed" and not force and t.updated_at > retry_failed:
+            continue
+        if t.status in ("queued", "running") and t.updated_at > stale and not force:
+            continue
+        if t.status == "failed":
+            t.attempts = 0
+        t.status, t.updated_at = "queued", now
+        keys.append(t.key)
+    await db.commit()
+    return {"status": "ok", "queued": keys, "ready": await network_ready(db)}
+
+
+async def _split(db: AsyncSession, tile: RoadImportTile) -> list[str]:
+    w, s, e, n = tile.west, tile.south, tile.east, tile.north
+    mw, mn = round((w + e) / 2, 5), round((s + n) / 2, 5)
+    boxes = [(w, s, mw, mn), (mw, s, e, mn), (w, mn, mw, n), (mw, mn, e, n)]
+    size = max(e - w, n - s) / 2
+    now = datetime.now(timezone.utc)
+    keys = []
+    for b in boxes:
+        k = tile_key(b)
+        keys.append(k)
+        await db.execute(pg_insert(RoadImportTile).values(
+            key=k, west=b[0], south=b[1], east=b[2], north=b[3], size_deg=size, status="queued",
+            attempts=0, updated_at=now).on_conflict_do_nothing(index_elements=["key"]))
+    tile.status, tile.error, tile.finished_at, tile.updated_at = "split", None, now, now
+    await db.commit()
+    return keys
+
+
+_UPSERT = text("""
+INSERT INTO road_segments (id, osm_way_id, seq, start_node, end_node, highway, road_rank, class_weight, name, ref,
+    oneway, maxspeed, lanes, length_m, mid_lat, mid_lon, h3_index, geom, active, imported_at)
+VALUES (:id, :osm_way_id, :seq, :start_node, :end_node, :highway, :road_rank, :class_weight, :name, :ref,
+    :oneway, :maxspeed, :lanes, :length_m, :mid_lat, :mid_lon, :h3_index,
+    ST_SetSRID(ST_GeomFromText(:wkt), 4326), true, :imported_at)
+ON CONFLICT (osm_way_id, seq) DO UPDATE SET
+    start_node = EXCLUDED.start_node, end_node = EXCLUDED.end_node, highway = EXCLUDED.highway,
+    road_rank = EXCLUDED.road_rank, class_weight = EXCLUDED.class_weight, name = EXCLUDED.name,
+    ref = EXCLUDED.ref, oneway = EXCLUDED.oneway, maxspeed = EXCLUDED.maxspeed, lanes = EXCLUDED.lanes,
+    length_m = EXCLUDED.length_m, mid_lat = EXCLUDED.mid_lat, mid_lon = EXCLUDED.mid_lon,
+    h3_index = EXCLUDED.h3_index, geom = EXCLUDED.geom, active = true, imported_at = EXCLUDED.imported_at
+""")
+_DEACTIVATE = text("UPDATE road_segments SET active = false "
+                   "WHERE osm_way_id = ANY(:ids) AND imported_at < :since AND active")
+
+
+async def run_tile(db: AsyncSession, redis: Redis, key: str) -> dict:
+    """Importe une tuile. Retourne {children}, {retry_in}, {failed}, {done} ou {skipped}."""
+    tile = await db.get(RoadImportTile, key)
+    if tile is None or tile.status in ("done", "split"):
+        return {"skipped": True}
+    started = datetime.now(timezone.utc)
+    tile.status, tile.attempts, tile.updated_at = "running", tile.attempts + 1, started
+    await db.commit()
+    bbox = (tile.west, tile.south, tile.east, tile.north)
+    splittable = max(tile.east - tile.west, tile.north - tile.south) > rs.ROAD_TILE_MIN_DEG * 1.01
+    try:
+        data = await fetch_overpass(bbox)
+        elements = data.get("elements") or []
+        if len(elements) > rs.ROAD_TILE_MAX_WAYS and splittable:
+            return {"children": await _split(db, tile), "split": True}
+        rows, way_ids = rows_from_elements(elements, started)
+        for i in range(0, len(rows), rs.ROAD_INSERT_CHUNK):
+            await db.execute(_UPSERT, rows[i:i + rs.ROAD_INSERT_CHUNK])
+        for i in range(0, len(way_ids), 20000):
+            await db.execute(_DEACTIVATE, {"ids": way_ids[i:i + 20000], "since": started})
+        tile.status, tile.ways, tile.segments, tile.error = "done", len(way_ids), len(rows), None
+        tile.finished_at = tile.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    except (OverpassTooHeavy, OverpassBusy) as exc:
+        await db.rollback()
+        tile = await db.get(RoadImportTile, key)
+        if (isinstance(exc, OverpassTooHeavy) or tile.attempts >= 2) and splittable:
+            return {"children": await _split(db, tile), "split": True}
+        if tile.attempts >= rs.ROAD_TILE_MAX_ATTEMPTS:
+            tile.status, tile.error = "failed", str(exc)[:200]
+            tile.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+            return {"failed": True}
+        tile.status, tile.error, tile.updated_at = "queued", str(exc)[:200], datetime.now(timezone.utc)
+        await db.commit()
+        return {"retry_in": min(900, 60 * tile.attempts)}
+    except Exception as exc:
+        await db.rollback()
+        tile = await db.get(RoadImportTile, key)
+        tile.status, tile.error = "failed", f"{type(exc).__name__}: {exc}"[:200]
+        tile.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        log.exception("road_tile_failed", extra={"task": key})
+        return {"failed": True}
+    if await network_ready(db):
+        await redis.incr("roads:version")                 # invalide les caches du réseau
+        log.info("roads_network_ready")
+    return {"done": True, "ways": len(way_ids), "segments": len(rows)}
+
+
+async def import_status(db: AsyncSession, redis: Redis) -> dict:
+    by = dict((await db.execute(select(RoadImportTile.status, func.count())
+                                .group_by(RoadImportTile.status))).all())
+    segs, km = (await db.execute(select(func.count(), func.coalesce(func.sum(RoadSegment.length_m), 0))
+                                 .where(RoadSegment.active.is_(True)))).one()
+    return {"tiles": by, "ready": await network_ready(db), "segments": int(segs),
+            "km": round(float(km) / 1000, 1), "version": await version(redis)}
+
+
+# ------------------------------------------------------------------ rattachement mesure -> tronçon
+
+_MATCH = text("""
+WITH todo AS (
+    SELECT id, geom FROM measurements
+    WHERE tenant_id = :tid AND road_matched_at IS NULL AND location_anonymized = false
+    ORDER BY measured_at DESC LIMIT :lim FOR UPDATE SKIP LOCKED
+), best AS (
+    SELECT t.id AS mid, r.id AS sid, r.dist AS dist
+    FROM todo t LEFT JOIN LATERAL (
+        SELECT s.id, ST_Distance(s.geom::geography, t.geom::geography) AS dist
+        FROM road_segments s
+        WHERE s.active AND ST_DWithin(s.geom, t.geom, :deg)
+        ORDER BY s.geom <-> t.geom LIMIT 1
+    ) r ON true
+)
+UPDATE measurements m SET
+    road_segment_id = CASE WHEN best.dist <= :max_m THEN best.sid END,
+    road_distance_m = CASE WHEN best.dist <= :max_m THEN best.dist END,
+    road_matched_at = CASE WHEN best.dist <= :max_m OR :final THEN now() END
+FROM best WHERE m.id = best.mid
+""")
+
+
+async def match_measurements(db: AsyncSession, tenant_id: uuid.UUID) -> int:
+    """Rattache les mesures non traitées au tronçon le plus proche. Tant que l'import n'est pas terminé,
+    une mesure sans tronçon reste à retraiter (elle peut tomber dans une zone pas encore importée)."""
+    if not (await db.execute(select(RoadSegment.id).limit(1))).first():
+        return 0
+    ready = await network_ready(db)
+    deg = rs.ROAD_MATCH_MAX_M / 111320.0 * 1.6
+    res = await db.execute(_MATCH, {"tid": tenant_id, "lim": rs.ROAD_MATCH_BATCH, "deg": deg,
+                                    "max_m": rs.ROAD_MATCH_MAX_M, "final": ready})
+    return res.rowcount or 0
+
+
+# ------------------------------------------------------------------ carte : réseau et état de bruit
+
+def rank_for(zoom: float | None, max_rank: int | None) -> int:
+    if max_rank:
+        return max_rank
+    if zoom is None:
+        return 3
+    for z, r in ((8, 2), (11, 3), (13, 4), (15, 5)):
+        if zoom < z:
+            return r
+    return 6
+
+
+def check_bbox(bbox: tuple[float, float, float, float]) -> None:
+    if bbox[2] - bbox[0] > rs.ROAD_MAP_MAX_BBOX_DEG or bbox[3] - bbox[1] > rs.ROAD_MAP_MAX_BBOX_DEG:
+        raise HTTPException(422, "bbox_too_large")
+
+
+def _snap(bbox, step: float):
+    return (round(math.floor(bbox[0] / step) * step, 5), round(math.floor(bbox[1] / step) * step, 5),
+            round(math.ceil(bbox[2] / step) * step, 5), round(math.ceil(bbox[3] / step) * step, 5))
+
+
+def intensity(db: float) -> float:
+    return round(clamp01((db - settings.NOISE_REF_MIN_DB) / (settings.NOISE_REF_MAX_DB - settings.NOISE_REF_MIN_DB)), 3)
+
+
+def baseline_state() -> dict:
+    return {"has_data": False, "laeq_db": rs.ROAD_BASELINE_DB, "lmax_db": None, "measurement_count": 0,
+            "device_count": 0, "confidence": 0.0, "last_measurement_at": None,
+            "intensity": intensity(rs.ROAD_BASELINE_DB)}
+
+
+def _state(r, now: datetime) -> dict:
+    laeq = round(float(r.laeq), 1)
+    return {"has_data": True, "laeq_db": laeq, "lmax_db": round(float(r.lmax), 1), "measurement_count": r.n,
+            "device_count": r.devices,
+            "confidence": confidence_of(r.n, r.devices, int(r.calibrated or 0), r.last, now),
+            "last_measurement_at": r.last.isoformat() if r.last else None, "intensity": intensity(laeq)}
+
+
+async def network_features(db: AsyncSession, redis: Redis, bbox, max_rank: int) -> dict:
+    """Géométrie statique du réseau (mise en cache : identique pour tous, change seulement après un import)."""
+    check_bbox(bbox)
+    b = _snap(bbox, 0.02)
+    key = f"roads:net:{await version(redis)}:{max_rank}:{b[0]}:{b[1]}:{b[2]}:{b[3]}"
+    etag = '"' + hashlib.sha1(key.encode()).hexdigest()[:20] + '"'
+    hit = await redis.get(key)
+    if hit:
+        d = json.loads(hit)
+        return {**d, "etag": etag}
+    cap = rs.ROAD_MAP_MAX_FEATURES
+    rows = (await db.execute(
+        select(RoadSegment.id, RoadSegment.highway, RoadSegment.name, RoadSegment.ref, RoadSegment.road_rank,
+               RoadSegment.length_m, RoadSegment.oneway, RoadSegment.maxspeed,
+               func.ST_AsGeoJSON(RoadSegment.geom, 6))
+        .where(RoadSegment.active.is_(True), RoadSegment.road_rank <= max_rank,
+               func.ST_Intersects(RoadSegment.geom, func.ST_MakeEnvelope(b[0], b[1], b[2], b[3], 4326)))
+        .order_by(RoadSegment.road_rank, RoadSegment.length_m.desc()).limit(cap + 1))).all()
+    truncated = len(rows) > cap
+    feats = [{"type": "Feature", "id": str(sid), "geometry": json.loads(gj),
+              "properties": {"id": str(sid), "highway": hw, "name": name, "ref": ref, "rank": rank,
+                             "length_m": ln, "oneway": ow, "maxspeed": ms}}
+             for sid, hw, name, ref, rank, ln, ow, ms, gj in rows[:cap]]
+    payload = {"features": feats, "truncated": truncated}
+    await redis.set(key, json.dumps(payload), ex=rs.ROAD_NETWORK_CACHE_TTL_SECONDS)
+    return {**payload, "etag": etag}
+
+
+async def road_states(db: AsyncSession, tenant_id: uuid.UUID, tf: TimeFilter, include_indicative: bool, bbox,
+                      max_rank: int, min_devices: int) -> dict[str, dict]:
+    start, end = resolve_period(tf)
+    cols = _agg_cols()
+    now = datetime.now(timezone.utc)
+    stmt = (select(Measurement.road_segment_id.label("sid"), *[c.label(k) for k, c in cols.items()])
+            .join(RoadSegment, RoadSegment.id == Measurement.road_segment_id)
+            .where(*_conditions(tenant_id, start, end, tf.day_part, statuses(include_indicative)),
+                   RoadSegment.active.is_(True), RoadSegment.road_rank <= max_rank,
+                   func.ST_Intersects(RoadSegment.geom,
+                                      func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)))
+            .group_by(Measurement.road_segment_id).limit(rs.ROAD_MAP_MAX_FEATURES * 2))
+    if min_devices > 1:                                    # k-anonymat : même règle que la carte
+        stmt = stmt.having(cols["devices"] >= min_devices)
+    return {str(r.sid): _state(r, now) for r in (await db.execute(stmt)).all()}
+
+
+async def cached_states(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID, tf: TimeFilter,
+                        include_indicative: bool, bbox, max_rank: int, min_devices: int) -> dict[str, dict]:
+    check_bbox(bbox)
+    b = _snap(bbox, 0.02)
+    raw = json.dumps([str(tenant_id), tf.period.value, str(tf.date_from), str(tf.date_to), tf.day_part,
+                      include_indicative, b, max_rank, min_devices], default=str)
+    key = "roads:st:" + hashlib.sha256(raw.encode()).hexdigest()
+    hit = await redis.get(key)
+    if hit:
+        return json.loads(hit)
+    data = await road_states(db, tenant_id, tf, include_indicative, b, max_rank, min_devices)
+    await redis.set(key, json.dumps(data), ex=rs.ROAD_STATE_CACHE_TTL_SECONDS)
+    return data
+
+
+def merge(net: dict, states: dict[str, dict]) -> dict:
+    feats = []
+    for f in net["features"]:
+        st = states.get(f["properties"]["id"]) or baseline_state()
+        feats.append({**f, "properties": {**f["properties"], **st}})
+    return {"type": "FeatureCollection", "features": feats, "truncated": net["truncated"],
+            "baseline_db": rs.ROAD_BASELINE_DB}
+
+
+async def segment_detail(db: AsyncSession, tenant_id: uuid.UUID, segment_id: uuid.UUID, tf: TimeFilter,
+                         include_indicative: bool, min_devices: int) -> dict:
+    row = (await db.execute(select(RoadSegment, func.ST_AsGeoJSON(RoadSegment.geom, 6))
+                            .where(RoadSegment.id == segment_id))).first()
+    if row is None:
+        raise HTTPException(404, "road_segment_not_found")
+    seg, gj = row
+    start, end = resolve_period(tf)
+    stats = statuses(include_indicative)
+    now = datetime.now(timezone.utc)
+    cols = _agg_cols()
+    r = (await db.execute(select(*[c.label(k) for k, c in cols.items()]).where(
+        *_conditions(tenant_id, start, end, tf.day_part, stats), Measurement.road_segment_id == segment_id))).one()
+    state = _state(r, now) if r.n and r.devices >= min_devices else baseline_state()
+    pcols = _agg_cols()
+    pstmt = (select(Measurement.day_part, *[c.label(k) for k, c in pcols.items()])
+             .where(*_conditions(tenant_id, start, end, "all", stats), Measurement.road_segment_id == segment_id)
+             .group_by(Measurement.day_part))
+    if min_devices > 1:
+        pstmt = pstmt.having(pcols["devices"] >= min_devices)
+    parts = [{"day_part": p.day_part.value, "laeq_db": round(float(p.laeq), 1), "measurement_count": p.n}
+             for p in (await db.execute(pstmt)).all()]
+    nodes = [seg.start_node, seg.end_node]
+    conn = (await db.execute(select(RoadSegment.id, RoadSegment.name, RoadSegment.highway).where(
+        RoadSegment.active.is_(True), RoadSegment.id != seg.id,
+        or_(RoadSegment.start_node.in_(nodes), RoadSegment.end_node.in_(nodes))).limit(20))).all()
+    return {"id": str(seg.id), "osm_way_id": seg.osm_way_id, "highway": seg.highway, "rank": seg.road_rank,
+            "name": seg.name, "ref": seg.ref, "oneway": seg.oneway, "maxspeed": seg.maxspeed, "lanes": seg.lanes,
+            "length_m": seg.length_m, "target": {"lat": seg.mid_lat, "lon": seg.mid_lon,
+                                                 "radius_m": rs.ROAD_TARGET_RADIUS_M},
+            "geometry": json.loads(gj), "state": state, "by_day_part": parts,
+            "connected": [{"id": str(i), "name": n, "highway": h} for i, n, h in conn]}
+
+
+async def stats(db: AsyncSession, tenant_id: uuid.UUID) -> dict:
+    now = datetime.now(timezone.utc)
+    by_rank = (await db.execute(select(RoadSegment.road_rank, func.count(), func.sum(RoadSegment.length_m))
+                                .where(RoadSegment.active.is_(True)).group_by(RoadSegment.road_rank)
+                                .order_by(RoadSegment.road_rank))).all()
+    total = sum(int(n) for _, n, _ in by_rank)
+    covered = (await db.execute(select(func.count(func.distinct(Measurement.road_segment_id))).where(
+        Measurement.tenant_id == tenant_id, Measurement.road_segment_id.is_not(None),
+        Measurement.measured_at >= now - timedelta(days=rs.ROAD_COVERAGE_WINDOW_DAYS),
+        Measurement.quality_status.in_(_USABLE)))).scalar_one()
+    n_all, n_matched = (await db.execute(select(
+        func.count(), func.count().filter(Measurement.road_segment_id.is_not(None))).where(
+        Measurement.tenant_id == tenant_id, Measurement.measured_at >= now - timedelta(days=30)))).one()
+    return {"segments": total,
+            "by_rank": [{"rank": r, "segments": int(n), "km": round(float(km or 0) / 1000, 1)} for r, n, km in by_rank],
+            "covered_segments": int(covered),
+            "coverage_share": round(int(covered) / total, 4) if total else 0.0,
+            "measurements_30d": int(n_all), "matched_to_road_30d": int(n_matched),
+            "matched_share": round(int(n_matched) / int(n_all), 3) if n_all else 0.0}
+
+
+################################################################################
 # FICHIER: services/statistics.py
 ################################################################################
 
@@ -8461,6 +10121,7 @@ from celery import Celery
 
 from app.core.account_settings import account_settings as acs
 from app.core.config import settings
+from app.core.road_settings import road_settings as rs
 
 celery_app = Celery(
     "sunusound",
@@ -8468,7 +10129,7 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.measurement_tasks", "app.tasks.aggregation_tasks", "app.tasks.collection_tasks",
              "app.tasks.privacy_tasks", "app.tasks.ai_tasks", "app.tasks.report_tasks",
-             "app.tasks.quota_tasks", "app.tasks.social_tasks"],
+             "app.tasks.quota_tasks", "app.tasks.social_tasks", "app.tasks.road_tasks"],
 )
 celery_app.conf.update(
     task_serializer="json", accept_content=["json"], result_serializer="json",
@@ -8491,6 +10152,8 @@ celery_app.conf.update(
         "leaderboard-refresh": {"task": "leaderboard.refresh", "schedule": acs.BEAT_LEADERBOARD_SECONDS},
         "leaderboard-xp": {"task": "leaderboard.xp", "schedule": acs.BEAT_XP_SECONDS},
         "accounts-cleanup": {"task": "accounts.cleanup", "schedule": settings.BEAT_PRIVACY_SECONDS},
+        "roads-match": {"task": "roads.match", "schedule": rs.ROAD_BEAT_MATCH_SECONDS},
+        "roads-ensure-network": {"task": "roads.ensure_network", "schedule": rs.ROAD_BEAT_ENSURE_SECONDS},
     },
 )
 
@@ -8677,6 +10340,71 @@ def generate(tenant_id: str, report_id: str):
         finally:
             await redis.aclose()
     return run(_job())
+
+
+################################################################################
+# FICHIER: tasks/road_tasks.py
+################################################################################
+
+from app.core.redis import new_redis
+from app.core.road_settings import road_settings as rs
+from app.services import roads as roads_service
+from app.tasks.celery_app import celery_app
+from app.tasks.runtime import for_each_tenant, run, task_db
+
+_LOCK = "roads:overpass:lock"
+
+
+@celery_app.task(name="roads.ensure_network")
+def ensure_network(force: bool = False):
+    """Planifie l'import initial (une seule fois) puis relance les tuiles manquantes, échouées ou bloquées."""
+    async def _job():
+        redis = new_redis()
+        try:
+            if not await redis.set("roads:ensure:lock", "1", nx=True, ex=120):
+                return {"status": "locked", "queued": []}
+            async with task_db() as db:
+                return await roads_service.ensure_network(db, redis, force)
+        finally:
+            await redis.aclose()
+    res = run(_job())
+    keys = res.get("queued", [])
+    for i, key in enumerate(keys):
+        import_tile.apply_async(args=[key], countdown=i * rs.ROAD_TILE_SPACING_SECONDS)
+    return {**{k: v for k, v in res.items() if k != "queued"}, "queued": len(keys)}
+
+
+@celery_app.task(name="roads.import_tile")
+def import_tile(key: str):
+    """Importe une tuile Overpass (une seule requête Overpass à la fois, toutes instances confondues)."""
+    async def _job():
+        redis = new_redis()
+        try:
+            if not await redis.set(_LOCK, "1", nx=True, ex=290):
+                return {"deferred": True}
+            try:
+                async with task_db() as db:
+                    return await roads_service.run_tile(db, redis, key)
+            finally:
+                await redis.delete(_LOCK)
+        finally:
+            await redis.aclose()
+    res = run(_job())
+    if res.get("deferred"):
+        import_tile.apply_async(args=[key], countdown=15)
+    if res.get("retry_in"):
+        import_tile.apply_async(args=[key], countdown=res["retry_in"])
+    for i, child in enumerate(res.get("children", [])):
+        import_tile.apply_async(args=[child], countdown=rs.ROAD_TILE_SPACING_SECONDS * (i + 1))
+    return {k: v for k, v in res.items() if k != "children"}
+
+
+@celery_app.task(name="roads.match")
+def match():
+    """Rattache les mesures au tronçon de route le plus proche (pour chaque tenant)."""
+    async def _job(db, tid):
+        return await roads_service.match_measurements(db, tid)
+    return run(for_each_tenant(_job))
 
 
 ################################################################################

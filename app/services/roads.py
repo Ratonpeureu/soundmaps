@@ -4,7 +4,8 @@ import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
-
+from sqlalchemy import or_
+from app.models.measurement import Measurement, MeasurementQuality
 import h3
 import httpx
 from fastapi import HTTPException
@@ -449,8 +450,13 @@ async def road_states(db: AsyncSession, tenant_id: uuid.UUID, tf: TimeFilter, in
                    func.ST_Intersects(RoadSegment.geom,
                                       func.ST_MakeEnvelope(bbox[0], bbox[1], bbox[2], bbox[3], 4326)))
             .group_by(Measurement.road_segment_id).limit(rs.ROAD_MAP_MAX_FEATURES * 2))
-    if min_devices > 1:                                    # k-anonymat : même règle que la carte
-        stmt = stmt.having(cols["devices"] >= min_devices)
+    #if min_devices > 1:                                    # k-anonymat : même règle que la carte
+    #    stmt = stmt.having(cols["devices"] >= min_devices)
+
+    if min_devices > 1:
+        stmt = stmt.outerjoin(MeasurementQuality, MeasurementQuality.measurement_id == Measurement.id)
+        admin_ok = func.bool_or(MeasurementQuality.evaluator == 'admin')
+        stmt = stmt.having(or_(cols["devices"] >= min_devices, admin_ok))
     return {str(r.sid): _state(r, now) for r in (await db.execute(stmt)).all()}
 
 

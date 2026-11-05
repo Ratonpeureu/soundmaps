@@ -10,7 +10,8 @@ class Role(StrEnum):
 class ConsentType(StrEnum):
     geolocation = "geolocation"
     microphone = "microphone"
-
+    survey_data = "survey_data"
+    photo = "photo"
 
 class CalibrationStatus(StrEnum):
     calibrated = "calibrated"
@@ -71,10 +72,13 @@ class ReportStatus(StrEnum):
     failed = "failed"
 
 
+
+
 class InsightKind(StrEnum):
     cell_analysis = "cell_analysis"
     anomaly_digest = "anomaly_digest"
     report_summary = "report_summary"
+    data_analysis = "data_analysis"
 
 
 class MissionStatus(StrEnum):
@@ -84,3 +88,41 @@ class MissionStatus(StrEnum):
     expired = "expired"
     completed = "completed"
     failed = "failed"
+
+
+
+class SurveyDomain(StrEnum):
+    demographie = "demographie"
+    menages = "menages"
+    habitat = "habitat"
+    emploi = "emploi"
+    entreprises = "entreprises"
+    agriculture = "agriculture"
+    education = "education"
+    sante = "sante"
+    economie = "economie"
+    migration = "migration"
+    genre = "genre"
+    numerique = "numerique"
+
+
+class SurveyStatus(StrEnum):
+    draft = "draft"
+    active = "active"
+    paused = "paused"
+    closed = "closed"
+
+
+class ProfileStatus(StrEnum):
+    active = "active"
+    retired = "retired"
+
+
+class EvidenceStatus(StrEnum):
+    pending = "pending"
+    accepted = "accepted"
+    rejected = "rejected"
+
+
+
+

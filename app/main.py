@@ -13,9 +13,10 @@ from app.core.logging import configure_logging
 from app.core.redis import close_redis
 from app.core.road_settings import road_settings
 from app.db.session import engine
-from app.routers import (account, admin, ai, auth, collection, devices, health, leaderboard, map as map_router,
-                         measurements, missions, platform, quota, reports, reviews, roads, statistics, tomtom,
-                         users, validation)
+from app.routers import (account, admin, ai, auth, collection, datamap, devices, guide, health, leaderboard,
+                         map as map_router, measurements, missions, platform, quota, reports, reviews, roads,
+                         statistics, survey_admin, surveys, tomtom, users, validation)
+from app.core.survey_settings import survey_settings as sv
 
 from app.services.tomtom import close_tomtom
 from app.tasks.celery_app import celery_app
@@ -89,7 +90,8 @@ def create_app() -> FastAPI:
     prefix = settings.API_V1_PREFIX
     app.include_router(health.router)
     for r in (platform, auth, users, devices, collection, measurements, map_router, statistics, admin, ai, tomtom,
-              reports, quota, missions, validation, account, leaderboard, reviews, roads):
+              reports, quota, missions, validation, account, leaderboard, reviews, roads, guide,
+              surveys, survey_admin, datamap):
         app.include_router(r.router, prefix=prefix)
     app.include_router(roads.platform_router, prefix=prefix)
 

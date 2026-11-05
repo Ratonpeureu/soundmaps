@@ -7,7 +7,8 @@ from redis.asyncio import Redis
 from sqlalchemy import Float, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
-
+from sqlalchemy import or_
+from app.models.measurement import Measurement, MeasurementQuality
 from app.core.config import settings
 from app.models.enums import DayPart
 from app.models.geo import GeographicCell, NoiseAggregation
@@ -58,6 +59,7 @@ async def build(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID, tf: TimeFi
         stmt = stmt.where(func.ST_Intersects(GeographicCell.center, func.ST_MakeEnvelope(
             bbox[0] - m, bbox[1] - m, bbox[2] + m, bbox[3] + m, 4326)))
 
+    """
     eligible = None
     if min_devices > 1:                                   # k-anonymat : même règle que la carte
         conds = [Measurement.tenant_id == tenant_id, Measurement.measured_at >= start,
@@ -67,7 +69,21 @@ async def build(db: AsyncSession, redis: Redis, tenant_id: uuid.UUID, tf: TimeFi
         sub = (select(Measurement.h3_index).where(*conds).group_by(Measurement.h3_index)
                .having(func.count(func.distinct(Measurement.contributor_hash)) >= min_devices))
         eligible = set((await db.execute(sub)).scalars())
-
+    """
+    eligible = None
+    if min_devices > 1:
+        conds = [Measurement.tenant_id == tenant_id, Measurement.measured_at >= start,
+                 Measurement.measured_at < end, Measurement.quality_status.in_(stats)]
+        if tf.day_part != "all":
+            conds.append(Measurement.day_part == DayPart(tf.day_part))
+        sub = (select(Measurement.h3_index)
+               .outerjoin(MeasurementQuality, MeasurementQuality.measurement_id == Measurement.id)
+               .where(*conds).group_by(Measurement.h3_index)
+               .having(or_(
+                   func.count(func.distinct(Measurement.contributor_hash)) >= min_devices,
+                   func.bool_or(MeasurementQuality.evaluator == 'admin')
+               )))
+        eligible = set((await db.execute(sub)).scalars())
     frames: dict = {(d, p): [] for d in days for p in parts}
     index: dict[str, int] = {}
     lo, hi = 1e9, -1e9

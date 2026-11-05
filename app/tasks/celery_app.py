@@ -3,14 +3,14 @@ from celery import Celery
 from app.core.account_settings import account_settings as acs
 from app.core.config import settings
 from app.core.road_settings import road_settings as rs
-
+from app.core.survey_settings import survey_settings as sv
 celery_app = Celery(
     "sunusound",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.measurement_tasks", "app.tasks.aggregation_tasks", "app.tasks.collection_tasks",
              "app.tasks.privacy_tasks", "app.tasks.ai_tasks", "app.tasks.report_tasks",
-             "app.tasks.quota_tasks", "app.tasks.social_tasks", "app.tasks.road_tasks"],
+             "app.tasks.quota_tasks", "app.tasks.social_tasks", "app.tasks.road_tasks","app.tasks.survey_tasks"],
 )
 celery_app.conf.update(
     task_serializer="json", accept_content=["json"], result_serializer="json",
@@ -35,5 +35,10 @@ celery_app.conf.update(
         "accounts-cleanup": {"task": "accounts.cleanup", "schedule": settings.BEAT_PRIVACY_SECONDS},
         "roads-match": {"task": "roads.match", "schedule": rs.ROAD_BEAT_MATCH_SECONDS},
         "roads-ensure-network": {"task": "roads.ensure_network", "schedule": rs.ROAD_BEAT_ENSURE_SECONDS},
+        "surveys-sweep": {"task": "surveys.sweep_pending", "schedule": sv.BEAT_SURVEY_SWEEP_SECONDS},
+        "surveys-reevaluate": {"task": "surveys.reevaluate", "schedule": sv.BEAT_SURVEY_REEVAL_SECONDS},
+        "surveys-evolve": {"task": "surveys.evolve_profiles", "schedule": sv.BEAT_SURVEY_EVOLVE_SECONDS},
+        "surveys-trust": {"task": "surveys.refresh_trust", "schedule": sv.BEAT_SURVEY_TRUST_SECONDS},
+        "surveys-privacy": {"task": "surveys.privacy", "schedule": sv.BEAT_SURVEY_PRIVACY_SECONDS},
     },
 )

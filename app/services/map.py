@@ -5,7 +5,8 @@ from fastapi import HTTPException
 from sqlalchemy import Float, case, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
-
+from sqlalchemy import or_
+from app.models.measurement import Measurement, MeasurementQuality
 from app.core.config import settings
 from app.models.enums import CalibrationStatus, DayPart, QualityStatus
 from app.models.geo import GeographicCell, NoiseAggregation
@@ -66,8 +67,14 @@ async def cell_rows(db: AsyncSession, tenant_id: uuid.UUID, tf: TimeFilter, incl
         stmt = stmt.join(GeographicCell, GeographicCell.id == Measurement.cell_id).where(
             func.ST_Intersects(GeographicCell.center, func.ST_MakeEnvelope(
                 bbox[0] - m, bbox[1] - m, bbox[2] + m, bbox[3] + m, 4326)))
+    #if min_devices > 1:
+    #    stmt = stmt.having(cols["devices"] >= min_devices)
+
     if min_devices > 1:
-        stmt = stmt.having(cols["devices"] >= min_devices)
+        stmt = stmt.outerjoin(MeasurementQuality, MeasurementQuality.measurement_id == Measurement.id)
+        admin_ok = func.bool_or(MeasurementQuality.evaluator == 'admin')
+        stmt = stmt.having(or_(cols["devices"] >= min_devices, admin_ok))
+        
     now = datetime.now(timezone.utc)
     out = []
     for r in (await db.execute(stmt)).all():
