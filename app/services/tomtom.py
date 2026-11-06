@@ -217,10 +217,65 @@ async def reverse_geocode(redis: Redis, lat: float, lon: float) -> dict:
 
 
 # ------------------------------------------------------------------ itinéraire
-async def route(o_lat: float, o_lon: float, d_lat: float, d_lon: float, mode: str) -> dict:
-    resp = await _request(f"/routing/1/calculateRoute/{o_lat:.6f},{o_lon:.6f}:{d_lat:.6f},{d_lon:.6f}/json", {
-        "traffic": "true", "travelMode": mode, "routeType": "fastest",
-        "computeTravelTimeFor": "all", "language": settings.TOMTOM_LANGUAGE}, allow=(400,))
+def _hav_m(la1: float, lo1: float, la2: float, lo2: float) -> float:
+    p1, p2 = math.radians(la1), math.radians(la2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lo2 - lo1) / 2) ** 2
+    return 2 * 6371000.0 * math.asin(math.sqrt(a))
+
+
+def _length(pts: list) -> float:
+    return sum(_hav_m(a[0], a[1], b[0], b[1]) for a, b in zip(pts, pts[1:]))
+
+
+def _trim_points(pts: list, lat: float, lon: float, radius_m: float) -> tuple[list, float]:
+    """Coupe l'itinéraire dès qu'il entre dans le cercle de tolérance de la cible (plus de boucle ni de dépassement)."""
+    if len(pts) < 2:
+        return pts, 1.0
+    stop = max(15.0, radius_m * 0.6)
+    cos_l = math.cos(math.radians(lat))
+
+    def xy(p):
+        return (p[1] - lon) * 111320.0 * cos_l, (p[0] - lat) * 110574.0
+
+    for i in range(len(pts) - 1):
+        ax, ay = xy(pts[i])
+        bx, by = xy(pts[i + 1])
+        t = None
+        if ax * ax + ay * ay <= stop * stop:
+            t = 0.0
+        else:
+            dx, dy = bx - ax, by - ay
+            a = dx * dx + dy * dy
+            if a > 0:
+                b = 2 * (ax * dx + ay * dy)
+                c = ax * ax + ay * ay - stop * stop
+                disc = b * b - 4 * a * c
+                if disc >= 0:
+                    tt = (-b - math.sqrt(disc)) / (2 * a)
+                    if 0 <= tt <= 1:
+                        t = tt
+        if t is None:
+            continue
+        out = pts[:i + 1]
+        if t > 0:
+            out.append([pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t])
+        if len(out) < 2:
+            out = [pts[0], pts[0]]
+        full = _length(pts) or 1.0
+        return out, min(1.0, _length(out) / full)
+    return pts, 1.0
+
+
+async def route(o_lat: float, o_lon: float, d_lat: float, d_lon: float, mode: str, *,
+                shortest: bool = False, stop_radius_m: float | None = None) -> dict:
+    params = {"travelMode": mode, "routeType": "shortest" if shortest else "fastest",
+              "language": settings.TOMTOM_LANGUAGE}
+    if shortest:
+        params["traffic"] = "false"          # chemin le plus court, indépendant du trafic
+    else:
+        params.update({"traffic": "true", "computeTravelTimeFor": "all"})
+    resp = await _request(f"/routing/1/calculateRoute/{o_lat:.6f},{o_lon:.6f}:{d_lat:.6f},{d_lon:.6f}/json",
+                          params, allow=(400,))
     if resp.status_code == 400:
         raise HTTPException(404, "route_not_found")
     routes = resp.json().get("routes") or []
@@ -228,9 +283,25 @@ async def route(o_lat: float, o_lon: float, d_lat: float, d_lon: float, mode: st
         raise HTTPException(404, "route_not_found")
     r = routes[0]
     pts = [[p["latitude"], p["longitude"]] for leg in r.get("legs", []) for p in leg.get("points", [])]
+    ratio = 1.0
+    if stop_radius_m is not None:
+        pts, ratio = _trim_points(pts, d_lat, d_lon, stop_radius_m)
     step = max(1, len(pts) // 800)
     pts = pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])
     s = r.get("summary") or {}
-    return {"length_m": s.get("lengthInMeters"), "travel_time_s": s.get("travelTimeInSeconds"),
-            "traffic_delay_s": s.get("trafficDelayInSeconds", 0), "departure": s.get("departureTime"),
+    length, tt, delay = s.get("lengthInMeters"), s.get("travelTimeInSeconds"), s.get("trafficDelayInSeconds", 0)
+    return {"length_m": None if length is None else int(length * ratio),
+            "travel_time_s": None if tt is None else int(tt * ratio),
+            "traffic_delay_s": int((delay or 0) * ratio), "departure": s.get("departureTime"),
             "arrival": s.get("arrivalTime"), "points": pts}
+
+
+
+
+
+
+
+
+
+
+

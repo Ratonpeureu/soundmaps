@@ -12,6 +12,7 @@
   header h1{font-size:16px;margin:0;flex:1}header small{color:var(--mu)}
   nav{display:flex;gap:6px;padding:12px 20px 0}nav button{border:0;background:none;padding:8px 14px;border-radius:10px 10px 0 0;cursor:pointer;color:var(--mu);font-weight:600}
   nav button.on{background:var(--card);color:var(--pr)}
+  nav a{border:0;background:none;padding:8px 14px;border-radius:10px 10px 0 0;cursor:pointer;color:var(--mu);font-weight:600;text-decoration:none;font:inherit}
   main{padding:0 20px 80px}.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-top:12px}
   input,select,button{font:inherit;color:inherit}input,select{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px}
   button.b{border:0;border-radius:9px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff}
@@ -46,7 +47,7 @@
 
 <div id="app" hidden>
   <header><h1>SunuSound · Administration</h1><small id="who"></small><button class="b s" id="logout">Déconnexion</button></header>
-  <nav><button data-tab="val" class="on">Validation</button><button data-tab="stats">Statistiques</button></nav>
+  <nav><button data-tab="val" class="on">Validation</button><button data-tab="stats">Statistiques</button><a href="surveys.html">Enquêtes</a><a href="invitations.html">Invitations</a></nav>
   <main>
     <section id="tab-val">
       <div class="card">

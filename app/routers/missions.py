@@ -16,8 +16,13 @@ from app.schemas.quota import MissionOut, MissionSyncIn, MissionTarget
 from app.services import missions as missions_service
 from app.services import tomtom as tt
 
+"""
 router = APIRouter(prefix="/missions", tags=["missions"],
                    dependencies=[Depends(limit_by_user("missions", settings.RATE_LIMIT_API_PER_MINUTE))])
+
+"""
+route = await tt.route(o_lat, o_lon, m.center_lat, m.center_lon, mode,
+                           shortest=True, stop_radius_m=m.radius_m)
 _staff = require_roles(Role.tenant_admin, Role.analyst)
 
 

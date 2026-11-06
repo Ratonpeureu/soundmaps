@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SunuSound · Enquêtes</title>
+<style>
+:root{--bg:#f4f7f8;--card:#fff;--tx:#0f1b22;--mu:#64748b;--bd:#e2e8f0;--pr:#0e9f9a;--ok:#16a34a;--wa:#d97706;--er:#dc2626;--pe:#64748b;--vi:#7c3aed}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1116;--card:#151d24;--tx:#e6edf2;--mu:#8da0ad;--bd:#26323b}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+header h1{font-size:16px;margin:0;flex:1}header small{color:var(--mu)}
+header nav{display:flex;gap:4px}
+header nav button,header nav a{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--mu);font-weight:600;text-decoration:none;font:inherit}
+header nav .on{background:var(--pr);color:#fff}
+main{padding:16px 20px 80px}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-top:12px}
+input,select,textarea,button{font:inherit;color:inherit}input,select,textarea{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px;width:100%}
+textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;min-height:100px;resize:vertical}
+button.b{border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff;width:auto}
+button.b.s{background:var(--bd);color:var(--tx)}button.b.ok{background:var(--ok)}button.b.wa{background:var(--wa)}button.b.er{background:var(--er)}
+button.b:disabled{opacity:.5;cursor:default}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.row>*{flex:0 0 auto}.row .grow{flex:1 1 200px}
+.row label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mu)}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{font-size:12px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+tr.r{cursor:pointer}tr.r:hover td{background:rgba(14,159,154,.06)}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;margin:1px 2px}
+.chip.draft{background:#64748b22;color:var(--pe)}.chip.active{background:#16a34a22;color:var(--ok)}
+.chip.paused{background:#d9770622;color:var(--wa)}.chip.closed{background:#dc262622;color:var(--er)}
+.chip.pending{background:#64748b22;color:var(--pe)}.chip.validated{background:#16a34a22;color:var(--ok)}
+.chip.indicative{background:#d9770622;color:var(--wa)}.chip.rejected{background:#dc262622;color:var(--er)}
+.chip.info{background:var(--bd);color:var(--mu)}
+.kv{font-size:12px;color:var(--mu)}.kv b{display:block;color:var(--tx);font-size:14px}
+.toast{position:fixed;right:16px;top:16px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:10px;z-index:20;max-width:340px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+.tabs button{border:0;background:none;padding:8px 14px;cursor:pointer;color:var(--mu);font-weight:600;border-bottom:2px solid transparent}
+.tabs button.on{color:var(--pr);border-bottom-color:var(--pr)}
+#login{max-width:360px;margin:12vh auto;padding:0 16px}#login .card{display:flex;flex-direction:column;gap:10px}
+pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;font-size:12px;max-height:340px;margin:0}
+.muted{color:var(--mu);font-size:12px}.hidden{display:none!important}
+details>summary{cursor:pointer;color:var(--pr);font-weight:600;padding:4px 0}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--mu);margin-top:4px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <h2 style="margin:0">SunuSound · Enquêtes</h2>
+    <label class="kv">URL de l'API<input id="l-api" style="width:100%"></label>
+    <input id="l-email" type="email" placeholder="E-mail" autocomplete="username">
+    <input id="l-pass" type="password" placeholder="Mot de passe" autocomplete="current-password">
+    <button class="b" id="l-go">Se connecter</button>
+    <div id="l-err" style="color:var(--er)"></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>SunuSound · Enquêtes</h1>
+    <small id="who"></small>
+    <nav>
+      <button data-tab="surveys" class="on">Enquêtes</button>
+      <button data-tab="responses">Réponses</button>
+      <button data-tab="respondents">Répondants</button>
+      <button data-tab="reference">Références</button>
+      <button data-tab="catalog">Catalogue</button>
+    </nav>
+    <a href="index.html" title="Retour à la validation des mesures">← Mesures</a>
+    <button class="b s" id="logout">Déconnexion</button>
+  </header>
+  <main>
+    <section id="tab-surveys">
+      <div class="card">
+        <div class="row">
+          <button class="b" id="sv-new">Nouvelle enquête</button>
+          <div class="grow"></div>
+          <label>Statut<select id="sv-f-status">
+            <option value="">Tous</option><option value="draft">Brouillon</option>
+            <option value="active">Active</option><option value="paused">En pause</option>
+            <option value="closed">Fermée</option></select></label>
+          <label>Domaine<select id="sv-f-domain"><option value="">Tous</option></select></label>
+          <button class="b s" id="sv-refresh">Actualiser</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow:auto">
+        <table>
+          <thead><tr><th>Titre</th><th>Domaine</th><th>Statut</th><th>Unité</th><th>Version</th><th>Réponses</th><th>Créée</th></tr></thead>
+          <tbody id="sv-rows"></tbody>
+        </table>
+      </div>
+      <div id="sv-editor" class="hidden"></div>
+    </section>
+
+    <section id="tab-responses" hidden>
+      <div class="card">
+        <div class="row">
+          <label>Enquête<select id="rs-survey"><option value="">Toutes</option></select></label>
+          <label>Statut
+            <div id="rs-status" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:3px">
+              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="pending" checked> En évaluation</label>
+              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="indicative" checked> Indicative</label>
+              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="rejected" checked> Rejetée</label>
+              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="validated"> Validée</label>
+            </div>
+          </label>
+          <label>Évaluateur<select id="rs-eval"><option value="">Tous</option><option value="auto">Auto</option><option value="admin">Admin</option></select></label>
+          <label>Raison<input id="rs-reason" placeholder="code" style="width:150px"></label>
+          <label>Score min<input id="rs-min" type="number" step="0.05" min="0" max="1" style="width:90px"></label>
+          <label>Score max<input id="rs-max" type="number" step="0.05" min="0" max="1" style="width:90px"></label>
+          <label>Du<input id="rs-from" type="date"></label>
+          <label>Au<input id="rs-to" type="date"></label>
+          <label>Par page<select id="rs-size"><option>25</option><option selected>50</option><option>100</option></select></label>
+          <button class="b" id="rs-go">Filtrer</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow:auto">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="rs-all"></th>
+            <th>Date</th><th>Enquête</th><th>Mode</th><th>Cellule</th><th>Statut</th><th>Score</th><th>Raisons</th>
+          </tr></thead>
+          <tbody id="rs-rows"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <span id="rs-count" class="kv"></span>
+        <span><button class="b s" id="rs-prev">← Précédent</button> <button class="b s" id="rs-next">Suivant →</button></span>
+      </div>
+      <div class="card" id="rs-bulk" hidden>
+        <div class="row">
+          <b id="rs-bulk-count"></b>
+          <select id="rs-bulk-status">
+            <option value="validated">Valider</option>
+            <option value="indicative">Indicative</option>
+            <option value="rejected">Rejeter</option>
+          </select>
+          <input id="rs-bulk-reason" placeholder="Motif (3 caractères min.)" class="grow">
+          <button class="b" id="rs-bulk-apply">Appliquer</button>
+          <button class="b s" id="rs-bulk-release">Remettre en automatique</button>
+          <button class="b s" id="rs-bulk-clear">Désélectionner</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-respondents" hidden>
+      <div class="card" id="rd-personas"></div>
+      <div class="card" style="padding:0;overflow:auto">
+        <div style="padding:14px"><b>Confiance la plus faible</b></div>
+        <table><thead><tr><th>Pseudo</th><th>Confiance</th><th>Persona</th><th>Réponses</th><th>Tendance</th><th>Drapeaux</th></tr></thead><tbody id="rd-rows"></tbody></table>
+      </div>
+    </section>
+
+    <section id="tab-reference" hidden>
+      <div class="card">
+        <div class="row">
+          <label>Indicateur<select id="rf-filter"><option value="">Tous</option></select></label>
+          <button class="b s" id="rf-refresh">Actualiser</button>
+          <button class="b" id="rf-add">Ajouter</button>
+        </div>
+        <div id="rf-form" class="hidden" style="margin-top:12px">
+          <div class="row">
+            <label>Indicateur<select id="rf-ind"></select></label>
+            <label>Stat<select id="rf-stat"><option value="mean">mean</option><option value="share">share</option></select></label>
+            <label>Catégorie<input id="rf-cat" placeholder="optionnel" style="width:130px"></label>
+            <label>Valeur<input id="rf-val" type="number" step="any" style="width:110px"></label>
+            <label>H3<input id="rf-h3" placeholder="optionnel" style="width:150px"></label>
+            <label>Résolution<input id="rf-res" type="number" min="3" max="9" style="width:80px"></label>
+            <label>Année<input id="rf-year" type="number" min="1900" max="2100" style="width:90px"></label>
+            <label>Source<input id="rf-src" placeholder="Recensement 2023" style="width:200px"></label>
+            <button class="b" id="rf-save">Enregistrer</button>
+            <button class="b s" id="rf-cancel">Annuler</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="padding:0;overflow:auto">
+        <table><thead><tr><th>Indicateur</th><th>Stat</th><th>Catégorie</th><th>Valeur</th><th>Périmètre</th><th>Année</th><th>Source</th><th></th></tr></thead><tbody id="rf-rows"></tbody></table>
+      </div>
+    </section>
+
+    <section id="tab-catalog" hidden>
+      <div class="card" id="cat-body"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast = m => { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.append(t); setTimeout(() => t.remove(), 3500); };
+const fmtDate = s => s ? new Date(s).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}) : '—';
+
+const STATUS_LABELS = {draft:'Brouillon', active:'Active', paused:'En pause', closed:'Fermée'};
+const QSTATUS_LABELS = {pending:'En évaluation', validated:'Validée', indicative:'Indicative', rejected:'Rejetée'};
+const MODE_LABELS = {profile:'Profil', mixed:'Mixte', direct:'Direct'};
+const ORIGIN_LABELS = {deterministic:'Déterministe', cluster:'Cluster', ai:'IA', admin:'Admin'};
+const PROFILE_STATUS_LABELS = {active:'Actif', retired:'Retiré'};
+
+const S = {
+  base: localStorage.getItem('ss_api') || 'https://soundmaps.rhmanager.site/api/v1',
+  access: sessionStorage.getItem('ss_at'),
+  refresh: sessionStorage.getItem('ss_rt'),
+  me: null,
+  catalog: null,
+  surveys: [],
+  responses: {items: [], total: 0, offset: 0},
+  selected: new Set(),
+};
+let refreshing = null;
+
+function saveTokens(a, r) { S.access = a; S.refresh = r; sessionStorage.setItem('ss_at', a); sessionStorage.setItem('ss_rt', r); }
+function logout() { S.access = S.refresh = null; sessionStorage.clear(); $('#app').hidden = true; $('#login').hidden = false; }
+
+async function refreshTokens() {
+  if (!S.refresh) return false;
+  refreshing ||= fetch(S.base + '/auth/refresh', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({refresh_token: S.refresh})})
+    .then(async r => { if (!r.ok) return false; const d = await r.json(); saveTokens(d.access_token, d.refresh_token); return true; })
+    .catch(() => false).finally(() => { refreshing = null; });
+  return refreshing;
+}
+
+async function api(path, {method='GET', body, query} = {}, retry = true) {
+  const url = new URL(S.base + path);
+  for (const [k, v] of Object.entries(query || {})) {
+    if (Array.isArray(v)) v.forEach(x => url.searchParams.append(k, x));
+    else if (v !== '' && v != null) url.searchParams.set(k, v);
+  }
+  let r;
+  try {
+    r = await fetch(url, {method,
+      headers: {...(body ? {'Content-Type':'application/json'} : {}), ...(S.access ? {Authorization: 'Bearer ' + S.access} : {})},
+      body: body ? JSON.stringify(body) : undefined});
+  } catch { throw new Error('Serveur injoignable'); }
+  if (r.status === 401 && retry && await refreshTokens()) return api(path, {method, body, query}, false);
+  if (r.status === 401) { logout(); throw new Error('Session expirée'); }
+  const data = await r.json().catch(() => null);
+  if (!r.ok) {
+    const detail = typeof data?.detail === 'string' ? data.detail : (data?.detail?.code || 'Erreur ' + r.status);
+    throw new Error(detail);
+  }
+  return data;
+}
+
+// -------- Auth
+$('#l-api').value = S.base;
+$('#l-go').onclick = async () => {
+  $('#l-err').textContent = '';
+  S.base = $('#l-api').value.trim().replace(/\/+$/, '');
+  localStorage.setItem('ss_api', S.base);
+  try {
+    const r = await fetch(S.base + '/auth/login', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({email: $('#l-email').value.trim(), password: $('#l-pass').value})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Erreur ' + r.status);
+    saveTokens(d.access_token, d.refresh_token);
+    await start();
+  } catch (e) { $('#l-err').textContent = e.message; }
+};
+$('#l-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#l-go').click(); });
+$('#logout').onclick = async () => { try { await api('/auth/logout', {method:'POST', body:{refresh_token: S.refresh}}); } catch {} logout(); };
+
+async function start() {
+  S.me = await api('/users/me');
+  if (!['tenant_admin', 'analyst'].includes(S.me.role)) { logout(); throw new Error("Accès refusé."); }
+  $('#who').textContent = `${S.me.pseudonym} · ${S.me.role === 'tenant_admin' ? 'Admin' : 'Analyste'}`;
+  $('#login').hidden = true; $('#app').hidden = false;
+  S.catalog = await api('/datamap/catalog');
+  fillCatalogSelects();
+  await Promise.all([loadSurveys(), loadReferences(), loadRespondents()]);
+}
+
+// -------- Tabs
+$$('header nav button').forEach(b => b.onclick = () => {
+  $$('header nav button').forEach(x => x.classList.toggle('on', x === b));
+  ['surveys','responses','respondents','reference','catalog'].forEach(t => $('#tab-' + t).hidden = b.dataset.tab !== t);
+  if (b.dataset.tab === 'surveys') loadSurveys();
+  if (b.dataset.tab === 'responses') loadResponses();
+  if (b.dataset.tab === 'respondents') loadRespondents();
+  if (b.dataset.tab === 'reference') loadReferences();
+  if (b.dataset.tab === 'catalog') renderCatalog();
+});
+
+function fillCatalogSelects() {
+  const domainSel = $('#sv-f-domain'), indSel = $('#rf-filter'), indSel2 = $('#rf-ind');
+  S.catalog.domains.forEach(d => domainSel.append(new Option(d.label, d.key)));
+  indSel.innerHTML = '<option value="">Tous</option>';
+  indSel2.innerHTML = '';
+  S.catalog.domains.forEach(d => d.indicators.forEach(i => {
+    indSel.append(new Option(`${d.label} · ${i.label}`, i.key));
+    indSel2.append(new Option(`${d.label} · ${i.label}`, i.key));
+  }));
+}
+
+// -------- Surveys
+async function loadSurveys() {
+  const status = $('#sv-f-status').value, domain = $('#sv-f-domain').value;
+  try {
+    S.surveys = await api('/survey-admin/surveys', {query: {status, domain}});
+    renderSurveys();
+    fillSurveySelects();
+  } catch (e) { toast(e.message); }
+}
+
+function fillSurveySelects() {
+  const sel = $('#rs-survey');
+  sel.innerHTML = '<option value="">Toutes</option>';
+  S.surveys.forEach(s => sel.append(new Option(s.title, s.id)));
+}
+
+function renderSurveys() {
+  const body = $('#sv-rows');
+  body.innerHTML = '';
+  if (!S.surveys.length) { body.innerHTML = '<tr><td colspan="7" class="muted" style="padding:24px">Aucune enquête.</td></tr>'; return; }
+  S.surveys.forEach(s => {
+    const tr = document.createElement('tr'); tr.className = 'r';
+    tr.innerHTML = `<td><b>${esc(s.title)}</b><div class="muted">${esc(s.description || '')}</div></td>
+      <td>${esc(s.domain)}</td>
+      <td><span class="chip ${esc(s.status)}">${esc(STATUS_LABELS[s.status] || s.status)}</span></td>
+      <td>${esc(s.unit)}</td><td>v${s.version}</td><td>${s.responses}</td>
+      <td class="muted">${fmtDate(s.created_at)}</td>`;
+    tr.onclick = () => openEditor(s.id);
+    body.append(tr);
+  });
+}
+
+$('#sv-refresh').onclick = loadSurveys;
+$('#sv-f-status').onchange = loadSurveys;
+$('#sv-f-domain').onchange = loadSurveys;
+$('#sv-new').onclick = () => openEditor(null);
+
+async function openEditor(surveyId) {
+  const wrap = $('#sv-editor');
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = '<div class="card">Chargement…</div>';
+  let s = null;
+  if (surveyId) {
+    try { s = await api('/survey-admin/surveys/' + surveyId); }
+    catch (e) { toast(e.message); wrap.innerHTML = ''; wrap.classList.add('hidden'); return; }
+  }
+  renderEditor(s);
+}
+
+function renderEditor(s) {
+  const wrap = $('#sv-editor');
+  const isEdit = !!s;
+  const defn = s ? JSON.stringify(s.definition, null, 2) : '';
+  wrap.innerHTML = `
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h3 style="margin:0">${isEdit ? 'Modifier l\'enquête' : 'Nouvelle enquête'}</h3>
+        <button class="b s" id="ed-close">Fermer</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <label class="grow">Domaine<select id="ed-domain" ${isEdit ? 'disabled' : ''}>${S.catalog.domains.map(d => `<option value="${esc(d.key)}" ${isEdit && s.domain === d.key ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></label>
+        <label class="grow">Titre<input id="ed-title" maxlength="160" value="${isEdit ? esc(s.title) : ''}"></label>
+      </div>
+      <label style="display:block;margin-top:8px">Description<textarea id="ed-desc" maxlength="1500" style="min-height:60px">${isEdit ? esc(s.description || '') : ''}</textarea></label>
+      <div class="row" style="margin-top:8px">
+        <label>Cooldown (j)<input id="ed-cooldown" type="number" min="0" max="365" value="${isEdit ? s.cooldown_days : 30}" style="width:100px"></label>
+        <label>Cible<input id="ed-target" type="number" min="0" value="${isEdit ? s.target_responses : 0}" style="width:110px"></label>
+        <label>Début<input id="ed-start" type="datetime-local" value="${isEdit && s.starts_at ? s.starts_at.slice(0,16) : ''}" style="width:180px"></label>
+        <label>Fin<input id="ed-end" type="datetime-local" value="${isEdit && s.ends_at ? s.ends_at.slice(0,16) : ''}" style="width:180px"></label>
+        <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="ed-sensitive" ${isEdit && s.allow_sensitive_axes ? 'checked' : ''} style="width:auto"> Axes sensibles</label>
+      </div>
+      <div style="margin-top:12px">
+        <div class="row" style="justify-content:space-between">
+          <b>Définition (JSON)</b>
+          ${!isEdit ? '<button class="b s" id="ed-design">Brouillon par IA</button>' : ''}
+        </div>
+        ${!isEdit ? `
+          <div id="ed-design-box" class="hidden" style="margin-top:8px">
+            <div class="row">
+              <label class="grow">Objectif<input id="ed-goal" maxlength="500" placeholder="Ex : mesurer l'accès à l'eau potable"></label>
+              <label>Unité<select id="ed-unit">
+                <option value="household">Ménage</option><option value="person">Personne</option>
+                <option value="dwelling">Logement</option><option value="enterprise">Entreprise</option>
+                <option value="farm">Exploitation</option><option value="facility">Établissement</option>
+                <option value="community">Communauté</option></select></label>
+              <label>Questions max<input id="ed-maxq" type="number" min="3" max="60" value="12" style="width:100px"></label>
+              <button class="b" id="ed-design-go">Générer</button>
+            </div>
+          </div>` : ''}
+        <textarea id="ed-def" style="min-height:240px;margin-top:8px">${defn}</textarea>
+      </div>
+      ${isEdit ? `
+        <div class="card" style="margin-top:12px;background:var(--bg)">
+          <div class="row">
+            <label>Statut<select id="ed-status">${Object.entries(STATUS_LABELS).map(([k,v]) => `<option value="${k}" ${s.status===k?'selected':''}>${v}</option>`).join('')}</select></label>
+            <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="ed-use-ai" style="width:auto"> Utiliser l'IA</label>
+            <button class="b" id="ed-status-apply">Appliquer</button>
+          </div>
+        </div>` : ''}
+      <div class="row" style="margin-top:12px">
+        <button class="b" id="ed-save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+      </div>
+      ${isEdit ? renderSurveyDetail() : ''}
+    </div>
+  `;
+  $('#ed-close').onclick = () => { wrap.classList.add('hidden'); wrap.innerHTML = ''; loadSurveys(); };
+
+  if (!isEdit) {
+    $('#ed-design').onclick = () => $('#ed-design-box').classList.toggle('hidden');
+    $('#ed-design-go').onclick = async () => {
+      try {
+        const d = await api('/survey-admin/surveys/design', {method:'POST', body: {
+          domain: $('#ed-domain').value,
+          goal: $('#ed-goal').value.trim(),
+          indicators: [],
+          unit: $('#ed-unit').value,
+          max_questions: +$('#ed-maxq').value,
+        }});
+        $('#ed-title').value = d.title || '';
+        $('#ed-desc').value = d.description || '';
+        $('#ed-def').value = JSON.stringify(d.definition, null, 2);
+        toast('Brouillon généré, à relire.');
+      } catch (e) { toast(e.message); }
+    };
+  } else {
+    $('#ed-status-apply').onclick = async () => {
+      try {
+        await api(`/survey-admin/surveys/${s.id}/status`, {method:'POST', body: {
+          status: $('#ed-status').value, use_ai: $('#ed-use-ai').checked}});
+        toast('Statut mis à jour');
+        await openEditor(s.id);
+      } catch (e) { toast(e.message); }
+    };
+    bindSurveyDetail(s);
+  }
+
+  $('#ed-save').onclick = async () => {
+    let parsed;
+    try { parsed = JSON.parse($('#ed-def').value); }
+    catch { toast('Définition JSON invalide'); return; }
+    const common = {
+      title: $('#ed-title').value.trim(),
+      description: $('#ed-desc').value.trim() || null,
+      definition: parsed,
+      cooldown_days: +$('#ed-cooldown').value,
+      target_responses: +$('#ed-target').value,
+      starts_at: $('#ed-start').value ? new Date($('#ed-start').value).toISOString() : null,
+      ends_at: $('#ed-end').value ? new Date($('#ed-end').value).toISOString() : null,
+      allow_sensitive_axes: $('#ed-sensitive').checked,
+    };
+    try {
+      if (isEdit) {
+        await api('/survey-admin/surveys/' + s.id, {method:'PATCH', body: common});
+        toast('Enquête mise à jour');
+        await openEditor(s.id);
+      } else {
+        const created = await api('/survey-admin/surveys', {method:'POST', body: {
+          ...common, domain: $('#ed-domain').value}});
+        toast('Enquête créée');
+        await openEditor(created.id);
+      }
+      loadSurveys();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+function renderSurveyDetail() {
+  return `
+    <div class="card" style="margin-top:12px;background:var(--bg)">
+      <div class="tabs">
+        <button data-t="profiles" class="on">Profils</button>
+        <button data-t="stats">Statistiques</button>
+        <button data-t="events">Événements</button>
+      </div>
+      <div id="sv-tab-profiles">…</div>
+      <div id="sv-tab-stats" class="hidden">…</div>
+      <div id="sv-tab-events" class="hidden">…</div>
+    </div>`;
+}
+
+function bindSurveyDetail(s) {
+  const root = $('#sv-editor');
+  $$('.tabs button', root).forEach(b => b.onclick = () => {
+    $$('.tabs button', root).forEach(x => x.classList.toggle('on', x === b));
+    ['profiles','stats','events'].forEach(t => $('#sv-tab-' + t).hidden = b.dataset.t !== t);
+  });
+  loadProfiles(s); loadStats(s); loadEvents(s);
+}
+
+async function loadProfiles(s) {
+  const el = $('#sv-tab-profiles');
+  if (!el) return;
+  try {
+    const profs = await api(`/survey-admin/surveys/${s.id}/profiles`);
+    const slots = (s.preview?.slots || []).filter(x => x.mode === 'profile').map(x => x.key);
+    if (!slots.length) { el.innerHTML = '<p class="muted">Aucun slot de profil dans cette enquête.</p>'; return; }
+    const bySlot = {};
+    profs.forEach(p => (bySlot[p.slot] = bySlot[p.slot] || []).push(p));
+    let html = `
+      <div class="row" style="margin-bottom:10px">
+        <select id="pf-slot">${slots.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select>
+        <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="pf-use-ai" style="width:auto"> IA</label>
+        <button class="b" id="pf-gen">Générer</button>
+        <button class="b" id="pf-evolve">Faire évoluer</button>
+        <button class="b s" id="pf-add">Ajouter</button>
+      </div>
+      <div id="pf-form" class="card hidden" style="background:var(--card)">
+        <div class="row">
+          <label>Slot<input id="pf-new-slot" style="width:130px"></label>
+          <label class="grow">Libellé<input id="pf-new-label" maxlength="120"></label>
+          <label class="grow">Description<input id="pf-new-desc" maxlength="300"></label>
+        </div>
+        <label style="display:block;margin-top:8px">Réponses (JSON)<textarea id="pf-new-answers" style="min-height:120px">{}</textarea></label>
+        <div class="row" style="margin-top:8px">
+          <button class="b" id="pf-new-save">Créer</button>
+          <button class="b s" id="pf-new-cancel">Annuler</button>
+        </div>
+      </div>
+      <div id="pf-list"></div>`;
+    el.innerHTML = html;
+    let list = '';
+    slots.forEach(slot => {
+      list += `<h4 style="margin:12px 0 6px">${esc(slot)}</h4>`;
+      const items = bySlot[slot] || [];
+      if (!items.length) { list += '<p class="muted">Aucun profil.</p>'; return; }
+      list += `<div style="overflow:auto"><table><thead><tr>
+        <th>Libellé</th><th>Origine</th><th>Statut</th><th>Affiché</th><th>Choisi</th><th>Taux</th><th>Part</th><th></th>
+        </tr></thead><tbody>`;
+      items.forEach(p => {
+        list += `<tr>
+          <td><b>${esc(p.label)}</b><div class="muted">${esc(p.description || '')}</div>
+            <div class="muted">${(p.summary || []).map(x => esc(x.answer)).join(' · ')}</div></td>
+          <td><span class="chip info">${esc(ORIGIN_LABELS[p.origin] || p.origin)}</span></td>
+          <td><span class="chip ${p.status === 'active' ? 'active' : 'info'}">${esc(PROFILE_STATUS_LABELS[p.status] || p.status)}</span></td>
+          <td>${p.shown}</td><td>${p.picked}</td>
+          <td>${p.pick_rate != null ? Math.round(p.pick_rate*100)+'%' : '—'}</td>
+          <td>${p.share_of_picks != null ? Math.round(p.share_of_picks*100)+'%' : '—'}</td>
+          <td style="white-space:nowrap">
+            <button class="b s" data-pin="${esc(p.id)}" data-v="${p.pinned}">${p.pinned ? 'Détacher' : 'Épingler'}</button>
+            <button class="b s" data-retire="${esc(p.id)}" data-st="${p.status}">${p.status === 'active' ? 'Retirer' : 'Réactiver'}</button>
+          </td></tr>`;
+      });
+      list += '</tbody></table></div>';
+    });
+    $('#pf-list').innerHTML = list;
+
+    $('#pf-list').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => {
+      try { await api('/survey-admin/profiles/' + b.dataset.pin, {method:'PATCH', body: {pinned: b.dataset.v !== 'true'}}); loadProfiles(s); }
+      catch (e) { toast(e.message); }
+    });
+    $('#pf-list').querySelectorAll('[data-retire]').forEach(b => b.onclick = async () => {
+      try { await api('/survey-admin/profiles/' + b.dataset.retire, {method:'PATCH', body: {retire: b.dataset.st === 'active'}}); loadProfiles(s); }
+      catch (e) { toast(e.message); }
+    });
+    $('#pf-gen').onclick = async () => {
+      try {
+        const r = await api(`/survey-admin/surveys/${s.id}/profiles/generate`, {method:'POST', body: {
+          slot: $('#pf-slot').value, n: null, use_ai: $('#pf-use-ai').checked}});
+        toast(`${r.added} profil(s) ajouté(s)`); loadProfiles(s);
+      } catch (e) { toast(e.message); }
+    };
+    $('#pf-evolve').onclick = async () => {
+      try {
+        const r = await api(`/survey-admin/surveys/${s.id}/evolve`, {method:'POST', body: {use_ai: $('#pf-use-ai').checked}});
+        toast(`Génération ${r.generation} — voir Événements`);
+        loadProfiles(s); loadEvents(s);
+      } catch (e) { toast(e.message); }
+    };
+    $('#pf-add').onclick = () => $('#pf-form').classList.toggle('hidden');
+    $('#pf-new-cancel').onclick = () => $('#pf-form').classList.add('hidden');
+    $('#pf-new-save').onclick = async () => {
+      let answers;
+      try { answers = JSON.parse($('#pf-new-answers').value); } catch { toast('JSON invalide'); return; }
+      try {
+        await api(`/survey-admin/surveys/${s.id}/profiles`, {method:'POST', body: {
+          slot: $('#pf-new-slot').value.trim(),
+          label: $('#pf-new-label').value.trim(),
+          description: $('#pf-new-desc').value.trim() || null,
+          answers,
+        }});
+        toast('Profil créé'); $('#pf-form').classList.add('hidden'); loadProfiles(s);
+      } catch (e) { toast(e.message); }
+    };
+  } catch (e) {
+    el.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+
+async function loadStats(s) {
+  const el = $('#sv-tab-stats');
+  if (!el) return;
+  try {
+    const st = await api(`/survey-admin/surveys/${s.id}/stats`, {query: {days: 30}});
+    const bars = (st.days || []).map(d => {
+      const total = (d.pending||0)+(d.validated||0)+(d.indicative||0)+(d.rejected||0);
+      if (!total) return '';
+      const p = k => (d[k]||0)/total*100;
+      return `<div class="row" style="align-items:center;margin:2px 0;font-size:12px;flex-wrap:nowrap">
+        <span style="width:90px;color:var(--mu)">${d.date}</span>
+        <div style="flex:1;display:flex;height:10px;border-radius:3px;overflow:hidden;background:var(--bd);min-width:60px">
+          ${d.validated ? `<i style="width:${p('validated')}%;background:#16a34a"></i>` : ''}
+          ${d.indicative ? `<i style="width:${p('indicative')}%;background:#d97706"></i>` : ''}
+          ${d.rejected ? `<i style="width:${p('rejected')}%;background:#dc2626"></i>` : ''}
+          ${d.pending ? `<i style="width:${p('pending')}%;background:#64748b"></i>` : ''}
+        </div>
+        <span style="width:40px;text-align:right;color:var(--mu)">${total}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML = `
+      <div class="row" style="gap:16px;margin-bottom:10px">
+        <div class="kv">Total<b>${st.total}</b></div>
+        <div class="kv">Contributeurs<b>${st.contributors}</b></div>
+        <div class="kv">Cellules<b>${st.cells_covered}</b></div>
+        ${st.progress != null ? `<div class="kv">Progression<b>${Math.round(st.progress*100)}%</b></div>` : ''}
+        <div class="kv">Génération<b>${st.profile_generation}</b></div>
+      </div>
+      <div style="margin-bottom:6px">
+        ${Object.entries(st.by_status).map(([k,v]) => `<span class="chip ${k}">${esc(QSTATUS_LABELS[k] || k)} ${v}</span>`).join('')}
+        ${Object.entries(st.modes).map(([k,v]) => `<span class="chip info">${esc(MODE_LABELS[k] || k)} ${v}</span>`).join('')}
+      </div>
+      <h4 style="margin:14px 0 6px">Par jour</h4>
+      ${bars || '<span class="muted">Aucune donnée.</span>'}
+      <div class="legend">
+        <span><i style="background:#16a34a"></i>Validée</span>
+        <span><i style="background:#d97706"></i>Indicative</span>
+        <span><i style="background:#dc2626"></i>Rejetée</span>
+        <span><i style="background:#64748b"></i>En évaluation</span>
+      </div>
+      <h4 style="margin:14px 0 6px">Raisons les plus fréquentes</h4>
+      ${(st.top_reasons || []).map(r => `<div class="row" style="align-items:center;margin:3px 0">
+        <span style="flex:1">${esc(r.label)}</span><span class="chip info">${r.n}</span></div>`).join('') || '<span class="muted">Aucune.</span>'}
+      <h4 style="margin:14px 0 6px">Taux « aucun profil » par slot</h4>
+      ${Object.entries(st.none_rate_by_slot || {}).map(([k,v]) => `<div class="row" style="align-items:center;margin:3px 0">
+        <span style="flex:1">${esc(k)}</span><span class="chip info">${Math.round(v*100)}%</span></div>`).join('') || '<span class="muted">—</span>'}
+    `;
+  } catch (e) { el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+async function loadEvents(s) {
+  const el = $('#sv-tab-events');
+  if (!el) return;
+  try {
+    const evs = await api(`/survey-admin/surveys/${s.id}/profile-events`);
+    if (!evs.length) { el.innerHTML = '<p class="muted">Aucun événement.</p>'; return; }
+    el.innerHTML = evs.map(e => `
+      <div class="card" style="margin-top:8px">
+        <div class="row" style="justify-content:space-between">
+          <b>Génération ${e.generation}</b>
+          <span class="muted">${fmtDate(e.at)}</span>
+        </div>
+        <div class="muted">Méthode : ${esc(e.method)} · +${e.added} / −${e.retired}</div>
+        <pre style="margin-top:6px">${esc(JSON.stringify(e.details, null, 2))}</pre>
+      </div>`).join('');
+  } catch (e) { el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+// -------- Responses
+async function loadResponses() {
+  const status = $$('#rs-status input:checked').map(i => i.value);
+  const filters = {
+    survey_id: $('#rs-survey').value,
+    status,
+    evaluator: $('#rs-eval').value,
+    reason: $('#rs-reason').value.trim(),
+    min_score: $('#rs-min').value,
+    max_score: $('#rs-max').value,
+    date_from: $('#rs-from').value,
+    date_to: $('#rs-to').value,
+    limit: $('#rs-size').value,
+    offset: S.responses.offset,
+  };
+  try {
+    const d = await api('/survey-admin/responses', {query: filters});
+    S.responses.items = d.items;
+    S.responses.total = d.total;
+    S.selected.clear();
+    renderResponses();
+  } catch (e) { toast(e.message); }
+}
+
+function renderResponses() {
+  const body = $('#rs-rows');
+  body.innerHTML = '';
+  if (!S.responses.items.length) {
+    body.innerHTML = '<tr><td colspan="8" class="muted" style="padding:24px">Aucune réponse.</td></tr>';
+  } else {
+    S.responses.items.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><input type="checkbox" class="rs-sel" data-id="${esc(r.id)}"></td>
+        <td>${fmtDate(r.submitted_at)}</td>
+        <td>${esc(r.survey)}</td>
+        <td><span class="chip info">${esc(MODE_LABELS[r.mode] || r.mode)}</span></td>
+        <td class="muted">${esc(r.h3_index.slice(-7))}</td>
+        <td><span class="chip ${esc(r.quality_status)}">${esc(QSTATUS_LABELS[r.quality_status] || r.quality_status)}</span></td>
+        <td>${r.score != null ? Math.round(r.score*100)+'%' : '—'}</td>
+        <td>${(r.reasons || []).filter(x => x.severity !== 'info').map(x => `<span class="chip info" title="${esc(x.tip||'')}">${esc(x.label)}</span>`).join('') || '—'}</td>`;
+      body.append(tr);
+      const det = document.createElement('tr');
+      det.innerHTML = `<td colspan="8"><details><summary>Détail</summary>
+        <div class="muted" style="margin:6px 0">Raisons :</div>
+        <div>${(r.reasons || []).map(x => `<span class="chip info" title="${esc(x.tip||'')}">${esc(x.label)}</span>`).join('') || '—'}</div>
+        <div class="muted" style="margin:6px 0">Réponses :</div>
+        <ul style="margin:0 0 6px 16px">${(r.answers || []).map(a => `<li><b>${esc(a.question)}</b> : ${esc(a.answer)}</li>`).join('')}</ul>
+        ${(r.evidence || []).length ? `<div class="muted">Preuves :</div>
+          <div style="margin-top:4px">${r.evidence.map(e => `<button class="b s" onclick="openEvidence('${esc(e.id)}')">${esc(e.question)}</button>`).join(' ')}</div>` : ''}
+        <div class="muted" style="margin-top:6px">Pondération : ${r.weight} · GPS : ${Math.round(r.gps_accuracy_m)} m · Durée : ${r.duration_seconds}s</div>
+      </details></td>`;
+      body.append(det);
+    });
+  }
+  const size = +$('#rs-size').value;
+  $('#rs-count').textContent = `${S.responses.total} réponse(s) · ${S.responses.offset + 1}–${Math.min(S.responses.offset + size, S.responses.total)}`;
+  $('#rs-prev').disabled = S.responses.offset === 0;
+  $('#rs-next').disabled = S.responses.offset + size >= S.responses.total;
+  $('#rs-all').checked = false;
+  updateBulk();
+}
+
+$('#rs-all').onchange = e => {
+  S.responses.items.forEach(r => e.target.checked ? S.selected.add(r.id) : S.selected.delete(r.id));
+  $$('.rs-sel').forEach(c => c.checked = e.target.checked);
+  updateBulk();
+};
+$('#rs-rows').addEventListener('change', e => {
+  if (e.target.classList.contains('rs-sel')) {
+    e.target.checked ? S.selected.add(e.target.dataset.id) : S.selected.delete(e.target.dataset.id);
+    updateBulk();
+  }
+});
+function updateBulk() {
+  $('#rs-bulk').hidden = S.selected.size === 0;
+  $('#rs-bulk-count').textContent = `${S.selected.size} sélectionnée(s)`;
+}
+$('#rs-bulk-clear').onclick = () => {
+  S.selected.clear(); $$('.rs-sel').forEach(c => c.checked = false);
+  $('#rs-all').checked = false; updateBulk();
+};
+$('#rs-bulk-apply').onclick = async () => {
+  const reason = $('#rs-bulk-reason').value.trim();
+  if (reason.length < 3) { toast('Motif (3 caractères min.)'); return; }
+  try {
+    const r = await api('/survey-admin/responses/bulk', {method:'POST', body: {
+      ids: [...S.selected], status: $('#rs-bulk-status').value, reason}});
+    toast(`${r.updated} mise(s) à jour · ${r.skipped} ignorée(s)`);
+    loadResponses();
+  } catch (e) { toast(e.message); }
+};
+$('#rs-bulk-release').onclick = async () => {
+  try {
+    const r = await api('/survey-admin/responses/release', {method:'POST', body: {ids: [...S.selected]}});
+    toast(`${r.released} remise(s) en évaluation`);
+    loadResponses();
+  } catch (e) { toast(e.message); }
+};
+$('#rs-go').onclick = () => { S.responses.offset = 0; loadResponses(); };
+$('#rs-prev').onclick = () => { S.responses.offset = Math.max(0, S.responses.offset - +$('#rs-size').value); loadResponses(); };
+$('#rs-next').onclick = () => { S.responses.offset += +$('#rs-size').value; loadResponses(); };
+
+// Pièce jointe : fetch authentifié -> blob local
+window.openEvidence = async (id) => {
+  try {
+    const url = new URL(S.base + '/survey-admin/evidence/' + id + '/content');
+    const r = await fetch(url, {headers: {Authorization: 'Bearer ' + S.access}});
+    if (!r.ok) throw new Error('Preuve indisponible');
+    const blob = await r.blob();
+    const u = URL.createObjectURL(blob);
+    window.open(u, '_blank');
+    setTimeout(() => URL.revokeObjectURL(u), 60000);
+  } catch (e) { toast(e.message); }
+};
+
+// -------- Respondents
+async function loadRespondents() {
+  try {
+    const d = await api('/survey-admin/respondents');
+    $('#rd-personas').innerHTML = '<b>Répartition des personas</b><div style="margin-top:8px">' +
+      (Object.entries(d.personas || {}).map(([k,v]) => `<span class="chip info">${esc(k)} ${v}</span>`).join('') || '<span class="muted">Aucun.</span>') + '</div>';
+    $('#rd-rows').innerHTML = (d.lowest_trust || []).length
+      ? d.lowest_trust.map(u => `<tr>
+          <td>${esc(u.pseudonym)}</td>
+          <td>${Math.round(u.trust*100)}%</td>
+          <td>${esc(u.persona)}</td>
+          <td>${u.responses}</td>
+          <td>${u.trend > 0.03 ? '↑' : u.trend < -0.03 ? '↓' : '='}</td>
+          <td>${(u.flags || []).map(f => `<span class="chip info">${esc(f)}</span>`).join('') || '—'}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" class="muted">Aucun répondant à faible confiance.</td></tr>';
+  } catch (e) {
+    $('#rd-personas').innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+    $('#rd-rows').innerHTML = '';
+  }
+}
+
+// -------- Reference
+async function loadReferences() {
+  try {
+    const items = await api('/survey-admin/reference', {query: {indicator_key: $('#rf-filter').value}});
+    $('#rf-rows').innerHTML = items.length
+      ? items.map(r => `<tr>
+          <td>${esc(r.indicator_key)}</td>
+          <td>${esc(r.stat)}</td>
+          <td>${r.category ? esc(r.category) : '—'}</td>
+          <td>${r.value}</td>
+          <td>${r.scope_h3 ? esc(r.scope_h3) + (r.scope_res ? ' (r' + r.scope_res + ')' : '') : 'national'}</td>
+          <td>${r.period_year || '—'}</td>
+          <td>${esc(r.source)}</td>
+          <td><button class="b s" data-del="${esc(r.id)}">Supprimer</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="8" class="muted">Aucune référence.</td></tr>';
+    $$('[data-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('Supprimer cette référence ?')) return;
+      try { await api('/survey-admin/reference/' + b.dataset.del, {method:'DELETE'}); loadReferences(); }
+      catch (e) { toast(e.message); }
+    });
+  } catch (e) { toast(e.message); }
+}
+
+$('#rf-refresh').onclick = loadReferences;
+$('#rf-filter').onchange = loadReferences;
+$('#rf-add').onclick = () => $('#rf-form').classList.toggle('hidden');
+$('#rf-cancel').onclick = () => $('#rf-form').classList.add('hidden');
+$('#rf-save').onclick = async () => {
+  const item = {
+    indicator_key: $('#rf-ind').value,
+    stat: $('#rf-stat').value,
+    category: $('#rf-cat').value.trim() || null,
+    value: +$('#rf-val').value,
+    scope_h3: $('#rf-h3').value.trim() || null,
+    scope_res: $('#rf-res').value ? +$('#rf-res').value : null,
+    period_year: $('#rf-year').value ? +$('#rf-year').value : null,
+    source: $('#rf-src').value.trim(),
+  };
+  if (!item.source || isNaN(item.value)) { toast('Valeur et source obligatoires'); return; }
+  try {
+    await api('/survey-admin/reference', {method:'POST', body: {items: [item]}});
+    toast('Référence ajoutée'); $('#rf-form').classList.add('hidden'); loadReferences();
+  } catch (e) { toast(e.message); }
+};
+
+// -------- Catalog (lecture seule)
+function renderCatalog() {
+  if (!S.catalog) return;
+  $('#cat-body').innerHTML = S.catalog.domains.map(d => `
+    <details style="margin-bottom:8px">
+      <summary>${esc(d.label)}</summary>
+      <p class="muted">${esc(d.summary)}</p>
+      <table>
+        <thead><tr><th>Indicateur</th><th>Type</th><th>Unité</th></tr></thead>
+        <tbody>${d.indicators.map(i => `<tr>
+          <td>${esc(i.label)} <span class="muted">(${esc(i.key)})</span></td>
+          <td>${esc(i.kind)}</td>
+          <td>${esc(i.unit)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </details>`).join('');
+}
+
+if (S.access) start().catch(() => logout());
+</script>
+</body>
+</html>
