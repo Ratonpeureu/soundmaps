@@ -52,7 +52,7 @@ class SurveyProfile(Base, IdMixin, TenantMixin, CreatedMixin):
     description: Mapped[str | None] = mapped_column(String(300))
     axes: Mapped[dict] = mapped_column(JSONB, default=dict)
     answers: Mapped[dict] = mapped_column(JSONB)
-    origin: Mapped[str] = mapped_column(String(12))           # deterministic | cluster | ai | admin
+    origin: Mapped[str] = mapped_column(String(16))           # deterministic | cluster | ai | admin
     status: Mapped[ProfileStatus] = mapped_column(pg_enum(ProfileStatus), default=ProfileStatus.active)
     generation: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
     shown_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
