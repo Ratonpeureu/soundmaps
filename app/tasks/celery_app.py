@@ -1,4 +1,5 @@
 from celery import Celery
+from app.core.study_settings import study_settings as sts
 
 from app.core.account_settings import account_settings as acs
 from app.core.config import settings
@@ -40,5 +41,8 @@ celery_app.conf.update(
         "surveys-evolve": {"task": "surveys.evolve_profiles", "schedule": sv.BEAT_SURVEY_EVOLVE_SECONDS},
         "surveys-trust": {"task": "surveys.refresh_trust", "schedule": sv.BEAT_SURVEY_TRUST_SECONDS},
         "surveys-privacy": {"task": "surveys.privacy", "schedule": sv.BEAT_SURVEY_PRIVACY_SECONDS},
+        "studies-invite": {"task": "studies.invite", "schedule": sts.BEAT_STUDY_INVITE_SECONDS},
+        "studies-maintain": {"task": "studies.maintain", "schedule": sts.BEAT_STUDY_MAINT_SECONDS},
+        "studies-privacy": {"task": "studies.privacy", "schedule": sts.BEAT_STUDY_PRIVACY_SECONDS},
     },
 )

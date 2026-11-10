@@ -146,5 +146,8 @@ class ProfileIn(BaseModel):
     interests: list[str] | None = Field(None, max_length=20)
 
 
+
 class ClaimIn(BaseModel):
-    ...
+    model_config = ConfigDict(extra="forbid")
+    phone: str = Field(min_length=6, max_length=20)
+    name: str | None = Field(None, max_length=80)

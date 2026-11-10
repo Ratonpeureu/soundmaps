@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SunuSound · Études</title>
+<style>
+:root{--bg:#f4f7f8;--card:#fff;--tx:#0f1b22;--mu:#64748b;--bd:#e2e8f0;--pr:#0e9f9a;--ok:#16a34a;--wa:#d97706;--er:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1116;--card:#151d24;--tx:#e6edf2;--mu:#8da0ad;--bd:#26323b}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
+header h1{font-size:16px;margin:0;flex:1}header nav{display:flex;gap:4px}
+header nav button,header a{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--mu);font-weight:600;text-decoration:none;font:inherit}
+header nav .on{background:var(--pr);color:#fff}
+main{padding:16px 20px 80px}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-top:12px}
+input,select,textarea,button{font:inherit;color:inherit}input,select,textarea{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px;width:100%}
+textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;resize:vertical}
+button.b{border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff;width:auto}
+button.b.s{background:var(--bd);color:var(--tx)}button.b.ok{background:var(--ok)}button.b.wa{background:var(--wa)}button.b.er{background:var(--er)}button.b:disabled{opacity:.5}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.row>label{flex:1 1 160px}.row .grow{flex:2 1 260px}
+label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mu)}label.ck{flex-direction:row;align-items:center;gap:6px;color:var(--tx);font-size:13px}label.ck input{width:auto}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--bd);vertical-align:top}th{font-size:12px;color:var(--mu);text-transform:uppercase}
+tr.r{cursor:pointer}tr.r:hover td{background:rgba(14,159,154,.06)}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;margin:1px 2px;background:var(--bd);color:var(--mu)}
+.chip.active,.chip.validated,.chip.granted,.chip.delivered{background:#16a34a22;color:var(--ok)}.chip.paused,.chip.indicative,.chip.pending,.chip.entered{background:#d9770622;color:var(--wa)}
+.chip.closed,.chip.rejected,.chip.refused,.chip.revoked{background:#dc262622;color:var(--er)}
+.muted{color:var(--mu);font-size:12px}.hidden{display:none!important}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--bd);margin:12px 0}.tabs button{border:0;background:none;padding:8px 14px;cursor:pointer;color:var(--mu);font-weight:600;border-bottom:2px solid transparent}.tabs button.on{color:var(--pr);border-bottom-color:var(--pr)}
+.page{border:2px solid var(--pr);border-radius:12px;padding:10px;margin:12px 0}.blk{background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0}
+.cond{border-top:1px dashed var(--bd);margin-top:8px;padding-top:6px;display:grid;grid-template-columns:140px 1fr;gap:6px;align-items:start}
+.toast{position:fixed;right:16px;top:16px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:10px;z-index:20;max-width:420px}
+.bar{height:8px;background:var(--bd);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--pr)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}.asset img{width:100%;height:110px;object-fit:cover;border-radius:8px}.asset .vid{height:110px;display:flex;align-items:center;justify-content:center;background:var(--bd);border-radius:8px}
+#login{max-width:360px;margin:12vh auto;padding:0 16px}#login .card{display:flex;flex-direction:column;gap:10px}
+pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;max-height:340px;font-size:12px}
+</style></head><body>
+<div id="login"><div class="card"><h2 style="margin:0">SunuSound · Études</h2>
+<label>URL de l'API<input id="l-api"></label><input id="l-email" type="email" placeholder="E-mail"><input id="l-pass" type="password" placeholder="Mot de passe">
+<button class="b" id="l-go">Se connecter</button><div id="l-err" style="color:var(--er)"></div></div></div>
+
+<div id="app" hidden>
+<header><h1>SunuSound · Études, sondages, enquêtes commerciales</h1><small id="who"></small>
+<nav><button data-tab="studies" class="on">Études</button><button data-tab="sponsors">Initiateurs</button><button data-tab="media">Médiathèque</button></nav>
+<a href="index.html">← Mesures</a><a href="surveys.html">Enquêtes</a><button class="b s" id="logout">Déconnexion</button></header>
+<main>
+<section id="tab-studies"><div class="card"><div class="row"><button class="b" id="st-new">Nouvelle étude</button><div class="grow"></div>
+<label>Statut<select id="st-f"><option value="">Tous</option><option value="draft">Brouillon</option><option value="active">Active</option><option value="paused">En pause</option><option value="closed">Clôturée</option></select></label></div></div>
+<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Titre</th><th>Initiateur</th><th>Type</th><th>Statut</th><th>Réponses</th><th>Quota</th><th>Clôture</th></tr></thead><tbody id="st-rows"></tbody></table></div>
+<div id="editor"></div></section>
+
+<section id="tab-sponsors" hidden><div class="card"><div class="row"><button class="b" id="sp-new">Nouvel initiateur</button></div><div id="sp-form"></div></div>
+<div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Nom</th><th>Type</th><th>Ville</th><th>Études</th><th>Vérifié</th><th>Actif</th></tr></thead><tbody id="sp-rows"></tbody></table></div></section>
+
+<section id="tab-media" hidden><div class="card"><b>Ajouter une image ou une vidéo</b> <span class="muted">(JPEG, PNG, WebP, GIF · MP4, WebM)</span>
+<div class="row" style="margin-top:8px"><label>Fichier<input type="file" id="md-file" accept="image/*,video/mp4,video/webm"></label><label>Nom<input id="md-name"></label><button class="b" id="md-up">Envoyer</button></div></div>
+<div class="grid" id="md-grid" style="margin-top:12px"></div></section>
+</main></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast=m=>{const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),4500)};
+const fd=s=>s?new Date(s).toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'}):'—';
+const S={base:localStorage.getItem('ss_api')||'https://soundmaps.rhmanager.site/api/v1',access:sessionStorage.getItem('ss_at'),refresh:sessionStorage.getItem('ss_rt'),me:null,meta:null,sponsors:[],assets:[],studies:[]};
+let E=null,refreshing=null;const thumbs={};
+const saveTokens=(a,r)=>{S.access=a;S.refresh=r;sessionStorage.setItem('ss_at',a);sessionStorage.setItem('ss_rt',r)};
+const logout=()=>{S.access=S.refresh=null;sessionStorage.clear();$('#app').hidden=true;$('#login').hidden=false};
+async function refreshTokens(){if(!S.refresh)return false;refreshing||=fetch(S.base+'/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:S.refresh})}).then(async r=>{if(!r.ok)return false;const d=await r.json();saveTokens(d.access_token,d.refresh_token);return true}).catch(()=>false).finally(()=>refreshing=null);return refreshing}
+async function raw(path,{method='GET',body,query,form}={},retry=true){
+ const url=new URL(S.base+path);for(const[k,v]of Object.entries(query||{})){if(Array.isArray(v))v.forEach(x=>url.searchParams.append(k,x));else if(v!==''&&v!=null)url.searchParams.set(k,v)}
+ let r;try{r=await fetch(url,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),Authorization:'Bearer '+S.access},body:form||(body?JSON.stringify(body):undefined)})}catch{throw new Error('Serveur injoignable')}
+ if(r.status===401&&retry&&await refreshTokens())return raw(path,{method,body,query,form},false);
+ if(r.status===401){logout();throw new Error('Session expirée')}return r}
+async function api(path,o){const r=await raw(path,o);const d=await r.json().catch(()=>null);if(!r.ok){const t=d?.detail;throw new Error(typeof t==='string'?t:(t?.code?t.code+(t.errors?' : '+t.errors.join(' ; '):''):'Erreur '+r.status))}return d}
+async function download(path,query,name){const r=await raw(path,{query});if(!r.ok)throw new Error('Erreur '+r.status);const u=URL.createObjectURL(await r.blob());const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),5000)}
+async function loadThumbs(root){for(const img of $$('img[data-asset]',root)){const id=img.dataset.asset;try{thumbs[id]??=URL.createObjectURL(await(await raw('/study-assets/'+id)).blob());img.src=thumbs[id]}catch{}}}
+
+// ---------- auth
+$('#l-api').value=S.base;
+$('#l-go').onclick=async()=>{$('#l-err').textContent='';S.base=$('#l-api').value.trim().replace(/\/+$/,'');localStorage.setItem('ss_api',S.base);
+ try{const r=await fetch(S.base+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('#l-email').value.trim(),password:$('#l-pass').value})});const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:'Erreur '+r.status);saveTokens(d.access_token,d.refresh_token);await start()}catch(e){$('#l-err').textContent=e.message}};
+$('#logout').onclick=async()=>{try{await api('/auth/logout',{method:'POST',body:{refresh_token:S.refresh}})}catch{}logout()};
+async function start(){S.me=await api('/users/me');if(S.me.role!=='tenant_admin'){logout();throw new Error('Réservé aux administrateurs.')}
+ $('#who').textContent=S.me.pseudonym;$('#login').hidden=true;$('#app').hidden=false;S.meta=await api('/study-admin/meta');await Promise.all([loadSponsors(),loadAssets()]);await loadStudies()}
+$$('header nav button').forEach(b=>b.onclick=()=>{$$('header nav button').forEach(x=>x.classList.toggle('on',x===b));['studies','sponsors','media'].forEach(t=>$('#tab-'+t).hidden=b.dataset.tab!==t)});
+
+// ---------- médiathèque
+async function loadAssets(){S.assets=await api('/study-admin/assets');renderMedia()}
+function renderMedia(){$('#md-grid').innerHTML=S.assets.map(a=>`<div class="card asset"><div>${a.kind==='image'?`<img data-asset="${a.id}">`:'<div class="vid">▶ vidéo</div>'}</div><b>${esc(a.name)}</b><div class="muted">${a.kind} · ${Math.round(a.size_bytes/1024)} Ko</div><div class="row"><button class="b s" data-copy="${a.id}">Copier l'ID</button><button class="b er" data-delasset="${a.id}">✕</button></div></div>`).join('')||'<div class="muted">Aucun média.</div>';loadThumbs($('#md-grid'))}
+$('#md-up').onclick=async()=>{const f=$('#md-file').files[0];if(!f)return toast('Choisissez un fichier');const form=new FormData();form.append('file',f);if($('#md-name').value)form.append('name',$('#md-name').value);
+ try{const r=await raw('/study-admin/assets',{method:'POST',form});const d=await r.json();if(!r.ok)throw new Error(d.detail||'Erreur');toast('Média ajouté');$('#md-file').value='';await loadAssets()}catch(e){toast(e.message)}};
+$('#md-grid').onclick=async e=>{const c=e.target.dataset.copy,d=e.target.dataset.delasset;if(c){navigator.clipboard.writeText(c);toast('ID copié : '+c)}
+ if(d&&confirm('Supprimer ce média ?')){try{await api('/study-admin/assets/'+d,{method:'DELETE'});loadAssets()}catch(x){toast(x.message==='asset_in_use'?'Média utilisé dans une étude ou un initiateur':x.message)}}};
+const assetOpts=(kind,sel)=>'<option value="">—</option>'+S.assets.filter(a=>!kind||a.kind===kind).map(a=>`<option value="${a.id}" ${a.id===sel?'selected':''}>${esc(a.name)}</option>`).join('');
+
+// ---------- initiateurs
+async function loadSponsors(){S.sponsors=await api('/study-admin/sponsors');$('#sp-rows').innerHTML=S.sponsors.map(s=>`<tr class="r" data-sp="${s.id}"><td><b>${esc(s.name)}</b><div class="muted">${esc(s.tagline||'')}</div></td><td>${esc(s.kind)}</td><td>${esc(s.city||'')}</td><td>${s.studies}</td><td>${s.verified?'✓':''}</td><td>${s.active?'✓':'—'}</td></tr>`).join('')||'<tr><td colspan=6 class="muted">Aucun initiateur.</td></tr>'}
+$('#sp-rows').onclick=e=>{const tr=e.target.closest('tr[data-sp]');if(tr)spForm(S.sponsors.find(s=>s.id===tr.dataset.sp))};$('#sp-new').onclick=()=>spForm(null);
+function spForm(sp){const v=sp||{kind:'company',active:true,activities:[],facts:{}};const i=(id,l,val,t='text')=>`<label>${l}<input id="sp-${id}" type="${t}" value="${esc(val??'')}"></label>`;
+ $('#sp-form').innerHTML=`<div class="card"><div class="row"><label>Type<select id="sp-kind">${S.meta.sponsor_kinds.map(k=>`<option value="${k.value}" ${k.value===v.kind?'selected':''}>${esc(k.label)}</option>`).join('')}</select></label>${i('name','Nom *',v.name)}${i('tagline','Accroche',v.tagline)}</div>
+ <label style="margin-top:8px">Description<textarea id="sp-description" rows=3>${esc(v.description||'')}</textarea></label>
+ <div class="row" style="margin-top:8px">${i('sector','Secteur',v.sector)}${i('city','Ville',v.city)}${i('country','Pays',v.country)}${i('website','Site web',v.website)}${i('contact','Contact public',v.contact_public)}</div>
+ <div class="row" style="margin-top:8px"><label>Logo<select id="sp-logo">${assetOpts('image',v.logo_asset_id)}</select></label><label>Couverture<select id="sp-cover">${assetOpts('image',v.cover_asset_id)}</select></label>
+ <label>Activités (séparées par des virgules)<input id="sp-act" value="${esc((v.activities||[]).join(', '))}"></label></div>
+ <label style="margin-top:8px">Informations de base (une par ligne : clé: valeur)<textarea id="sp-facts" rows=3>${esc(Object.entries(v.facts||{}).map(([k,x])=>k+': '+x).join('\n'))}</textarea></label>
+ <div class="row" style="margin-top:8px"><label class="ck"><input type="checkbox" id="sp-verified" ${v.verified?'checked':''}> Vérifié</label><label class="ck"><input type="checkbox" id="sp-active" ${v.active!==false?'checked':''}> Actif</label>
+ <button class="b" id="sp-save">Enregistrer</button>${sp?'<button class="b er" id="sp-del">Supprimer</button>':''}</div></div>`;
+ $('#sp-save').onclick=async()=>{const facts={};$('#sp-facts').value.split('\n').forEach(l=>{const m=l.match(/^([^:]+):(.*)$/);if(m)facts[m[1].trim()]=m[2].trim()});
+ const b={kind:$('#sp-kind').value,name:$('#sp-name').value.trim(),tagline:$('#sp-tagline').value||null,description:$('#sp-description').value||null,sector:$('#sp-sector').value||null,city:$('#sp-city').value||null,country:$('#sp-country').value||null,website:$('#sp-website').value||null,contact_public:$('#sp-contact').value||null,logo_asset_id:$('#sp-logo').value||null,cover_asset_id:$('#sp-cover').value||null,activities:$('#sp-act').value.split(',').map(x=>x.trim()).filter(Boolean),facts,verified:$('#sp-verified').checked,active:$('#sp-active').checked};
+ try{await api(sp?'/study-admin/sponsors/'+sp.id:'/study-admin/sponsors',{method:sp?'PATCH':'POST',body:b});toast('Enregistré');$('#sp-form').innerHTML='';loadSponsors()}catch(e){toast(e.message)}};
+ if(sp)$('#sp-del').onclick=async()=>{if(!confirm('Supprimer ?'))return;try{await api('/study-admin/sponsors/'+sp.id,{method:'DELETE'});$('#sp-form').innerHTML='';loadSponsors()}catch(e){toast(e.message)}}}
+
+// ---------- liste des études
+async function loadStudies(){S.studies=await api('/study-admin/studies',{query:{status:$('#st-f').value}});
+ $('#st-rows').innerHTML=S.studies.map(s=>`<tr class="r" data-st="${s.id}"><td><b>${esc(s.title)}</b></td><td>${esc(s.sponsor_name)}</td><td>${esc(s.kind_label)}</td><td><span class="chip ${s.status}">${s.status}</span></td><td>${s.responses}</td><td>${s.quota_total||'∞'}</td><td>${fd(s.ends_at)}</td></tr>`).join('')||'<tr><td colspan=7 class="muted">Aucune étude.</td></tr>'}
+$('#st-f').onchange=loadStudies;
+$('#st-rows').onclick=async e=>{const tr=e.target.closest('tr[data-st]');if(!tr)return;try{E=await api('/study-admin/studies/'+tr.dataset.st);E._tab='gen';renderEditor()}catch(x){toast(x.message)}};
+$('#st-new').onclick=()=>{if(!S.sponsors.length)return toast("Créez d'abord un initiateur");E=newStudy();renderEditor()};
+const newStudy=()=>({_tab:'gen',sponsor_id:S.sponsors[0].id,kind:'survey',title:'',quota_total:0,estimated_minutes:5,tags:[],targeting:{include:[],exclude:[],strict_unknown:false,min_reliability:0,sampling:{mode:'open'}},
+ reward:{enabled:false,kind:'points',mode:'guaranteed',validation:'auto',amount:0,winners:0,conditions:{min_status:'validated',

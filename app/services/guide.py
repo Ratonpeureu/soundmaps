@@ -378,6 +378,8 @@ def build(tenant_settings: dict | None = None, role: str = "contributor") -> dic
 
     from app.services.guide_surveys import sections as _survey_sections
     sections.extend(_survey_sections())
+    from app.services.guide_studies import sections as _study_sections
+    sections.extend(_study_sections())
 
     # ============================================================ 12. Vie privée
     sections.append(sec(

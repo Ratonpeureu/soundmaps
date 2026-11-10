@@ -96,5 +96,7 @@ async def erase_account(db: AsyncSession, user: User, password: str) -> None:
     await db.execute(delete(CollectionProposal).where(CollectionProposal.user_id == user.id))
     from app.services.survey_ingest import erase_user_survey_data
     await erase_user_survey_data(db, user)
+    from app.services.study_ingest import erase_user_study_data
+    await erase_user_study_data(db, user)
     await db.delete(user)   # consentements, appareils, planning, statistiques : suppression en cascade
     await db.commit()

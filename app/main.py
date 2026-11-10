@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from app.core.study_settings import study_settings as sts
 
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -14,7 +15,7 @@ from app.core.redis import close_redis
 from app.core.road_settings import road_settings
 from app.db.session import engine
 from app.routers import (account, admin, ai, auth, collection, datamap, devices, guide, health, leaderboard,
-                         map as map_router, measurements, missions, platform, quota, reports, reviews, roads,
+                         map as map_router, measurements, missions, platform,studies, study_admin, quota, reports, reviews, roads,
                          statistics, survey_admin, surveys, tomtom, users, validation)
 from app.core.survey_settings import survey_settings as sv
 
@@ -86,10 +87,16 @@ def create_app() -> FastAPI:
         if prod:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response
+        length = request.headers.get("content-length")
+        limit = settings.MAX_BODY_BYTES
+        if request.method == "POST" and request.url.path.endswith("/study-admin/assets"):
+            limit = sts.ST_ASSET_BODY_BYTES
+        if length and length.isdigit() and int(length) > limit:
+            return JSONResponse({"detail": "payload_too_large"}, status_code=413)
 
     prefix = settings.API_V1_PREFIX
     app.include_router(health.router)
-    for r in (platform, auth, users, devices, collection, measurements, map_router, statistics, admin, ai, tomtom,
+    for r in (platform, auth, users, devices, collection, measurements, map_router,surveys, survey_admin, studies, study_admin, statistics, admin, ai, tomtom,
               reports, quota, missions, validation, account, leaderboard, reviews, roads, guide,
               surveys, survey_admin, datamap):
         app.include_router(r.router, prefix=prefix)
