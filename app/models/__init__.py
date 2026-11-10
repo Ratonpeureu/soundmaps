@@ -12,3 +12,7 @@ from app.models.social import (Invitation, LeaderboardEntry, LeaderboardSnapshot
 from app.models.tenancy import AuditLog, Tenant, User, UserConsent  # noqa: F401
 from app.models.survey import (ProfileEvent, ReferenceValue, RespondentTrust, Survey, SurveyAnswer,  # noqa: F401
                                SurveyEvidence, SurveyProfile, SurveyResponse, SurveyResponseQuality, SurveyVersion)
+
+
+from app.models.study import (Study, StudyAsset, StudyParticipation, StudyResponse, StudyReward, StudySponsor,  # noqa: F401
+                              StudyVersion, StudyVoucherCode, UserStudyProfile)
