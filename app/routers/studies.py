@@ -1,6 +1,8 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -10,12 +12,18 @@ from app.core.study_settings import study_settings as sts
 from app.models.tenancy import User
 from app.schemas.studies import CheckIn, ClaimIn, ProfileIn, SubmitIn
 from app.services import study_ingest as ing
+from app.services import study_profile as sprof
 from app.services.study_schema import ATTRS
 
 router = APIRouter(prefix="/studies", tags=["studies"],
                    dependencies=[Depends(limit_by_user("studies", settings.RATE_LIMIT_API_PER_MINUTE))])
 assets_router = APIRouter(prefix="/study-assets", tags=["studies"],
                           dependencies=[Depends(limit_by_user("study_asset", sts.RATE_LIMIT_STUDY_ASSET_PER_MINUTE))])
+
+
+class ProfileAnswersIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answers: dict[str, Any] = Field(min_length=1, max_length=40)
 
 
 def _opts(key: str) -> list[dict]:
@@ -64,6 +72,19 @@ async def put_profile(payload: ProfileIn, user: User = Depends(get_current_user)
 @router.get("/profile/options")
 async def profile_options(user: User = Depends(get_current_user)):
     return {k: _opts(k) for k in ("gender", "occupation_group", "education_level", "income_band", "languages", "interests")}
+
+
+@router.get("/profile/schema")
+async def profile_schema(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Rubriques, questions, réponses déjà données et progression (reprise à tout moment)."""
+    return await sprof.get_schema(db, user)
+
+
+@router.put("/profile/answers")
+async def profile_answers(payload: ProfileAnswersIn, user: User = Depends(get_current_user),
+                          db: AsyncSession = Depends(get_db)):
+    """Sauvegarde partielle : une réponse à la fois suffit. Valeur null = effacer ; « __skip__ » = passer."""
+    return await sprof.save_answers(db, user, payload.answers)
 
 
 @router.get("/sponsors/{sponsor_id}")

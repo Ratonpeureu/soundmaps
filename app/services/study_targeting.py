@@ -8,7 +8,7 @@ import h3
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.services.study_profile import profile_attrs
 from app.core.study_settings import study_settings as sts
 from app.models.enums import ConsentType, ParticipationStatus, QualityStatus, StudyStatus
 from app.models.measurement import Measurement
@@ -91,12 +91,14 @@ async def derive_bulk(db: AsyncSession, tenant_id, ids: list, now: datetime, pos
         elif cat:
             d[tgt] = cat
     # déclaré (prioritaire)
+
     for sp in (await db.execute(select(UserStudyProfile).where(UserStudyProfile.user_id.in_(ids)))).scalars():
         d = out[sp.user_id]
         for f in ("gender", "occupation_group", "education_level", "household_size", "income_band"):
             if getattr(sp, f) is not None:
                 d[f] = getattr(sp, f)
         d["languages"], d["interests"] = list(sp.languages or []), list(sp.interests or [])
+        d.update(profile_attrs(sp.answers)) 
     # position récente
     for uid, la, lo in (await db.execute(
             select(Measurement.user_id, Measurement.latitude, Measurement.longitude)

@@ -535,6 +535,10 @@ ATTRS: dict[str, dict] = {
     "study_trust": dict(label="Score moyen en études (0 à 1)", kind="number"),
 }
 
+from app.services.study_profile import attr_specs as _profile_attr_specs  # noqa: E402
+
+for _k, _v in _profile_attr_specs().items():
+    ATTRS.setdefault(_k, _v)
 
 def attrs_public() -> list[dict]:
     return [{"key": k, "label": v["label"], "kind": v["kind"], "unit": v.get("unit"), "free": bool(v.get("free")),

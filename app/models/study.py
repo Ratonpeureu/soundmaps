@@ -175,4 +175,5 @@ class UserStudyProfile(Base, TenantMixin):
     income_band: Mapped[str | None] = mapped_column(String(12))
     languages: Mapped[list] = mapped_column(JSONB, default=list)
     interests: Mapped[list] = mapped_column(JSONB, default=list)
+    answers: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
