@@ -75,32 +75,34 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def secure(request: Request, call_next):
+        limit = settings.MAX_BODY_BYTES
+        path = request.url.path
+        if request.method == "POST":
+            if path.endswith("/study-admin/assets"):
+                limit = sts.ST_ASSET_BODY_BYTES
+            elif path.endswith("/evidence") and "/surveys/responses/" in path:
+                limit = sv.SV_EVIDENCE_BODY_BYTES
         length = request.headers.get("content-length")
-        if length and length.isdigit() and int(length) > settings.MAX_BODY_BYTES:
+        if length and length.isdigit() and int(length) > limit:
             return JSONResponse({"detail": "payload_too_large"}, status_code=413)
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers.setdefault("Cache-Control", "no-store")     # une route peut fixer sa propre politique
+        response.headers.setdefault("Cache-Control", "no-store")
         if prod:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
         return response
-        length = request.headers.get("content-length")
-        limit = settings.MAX_BODY_BYTES
-        if request.method == "POST" and request.url.path.endswith("/study-admin/assets"):
-            limit = sts.ST_ASSET_BODY_BYTES
-        if length and length.isdigit() and int(length) > limit:
-            return JSONResponse({"detail": "payload_too_large"}, status_code=413)
 
     prefix = settings.API_V1_PREFIX
     app.include_router(health.router)
-    for r in (platform, auth, users, devices, collection, measurements, map_router,surveys, survey_admin, studies, study_admin, statistics, admin, ai, tomtom,
+    for r in (platform, auth, users, devices, collection, measurements, map_router, studies, study_admin, statistics, admin, ai, tomtom,
               reports, quota, missions, validation, account, leaderboard, reviews, roads, guide,
               surveys, survey_admin, datamap):
         app.include_router(r.router, prefix=prefix)
     app.include_router(roads.platform_router, prefix=prefix)
+    app.include_router(studies.assets_router, prefix=prefix)
 
     Instrumentator().instrument(app)
     return app

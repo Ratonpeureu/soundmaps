@@ -114,5 +114,346 @@ async function loadStudies(){S.studies=await api('/study-admin/studies',{query:{
 $('#st-f').onchange=loadStudies;
 $('#st-rows').onclick=async e=>{const tr=e.target.closest('tr[data-st]');if(!tr)return;try{E=await api('/study-admin/studies/'+tr.dataset.st);E._tab='gen';renderEditor()}catch(x){toast(x.message)}};
 $('#st-new').onclick=()=>{if(!S.sponsors.length)return toast("Créez d'abord un initiateur");E=newStudy();renderEditor()};
-const newStudy=()=>({_tab:'gen',sponsor_id:S.sponsors[0].id,kind:'survey',title:'',quota_total:0,estimated_minutes:5,tags:[],targeting:{include:[],exclude:[],strict_unknown:false,min_reliability:0,sampling:{mode:'open'}},
- reward:{enabled:false,kind:'points',mode:'guaranteed',validation:'auto',amount:0,winners:0,conditions:{min_status:'validated',
+// ======================= ÉDITEUR D'ÉTUDE (suite) =======================
+const clone=o=>JSON.parse(JSON.stringify(o));
+const getP=(o,p)=>p.split('.').reduce((a,k)=>a==null?a:a[k],o);
+const setP=(o,p,v)=>{const k=p.split('.'),l=k.pop();k.reduce((a,x)=>a[x],o)[l]=v};
+const merge=(d,s)=>{if(s==null)return clone(d);const o={...d};for(const k of Object.keys(s)){const a=d[k],b=s[k];o[k]=(a&&typeof a==='object'&&!Array.isArray(a)&&b&&typeof b==='object'&&!Array.isArray(b))?merge(a,b):b}return o};
+const pval=s=>{s=String(s).trim();if(s==='true')return true;if(s==='false')return false;if(s!==''&&!isNaN(s))return Number(s);return s};
+const toLoc=iso=>{if(!iso)return'';const d=new Date(iso),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
+const mv=(a,i,dl)=>{const j=i+dl;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]]};
+
+const ANSW=new Set(['single_choice','multi_choice','yes_no','number','slider','scale','stars','nps','text','long_text','ranking','matrix','date','product_rating']);
+const SCR=new Set(['single_choice','multi_choice','yes_no','number','slider','scale','stars','nps']);
+const ATT=new Set(['single_choice','yes_no','number','scale','stars','nps']);
+const OPL={eq:'=',ne:'≠',in:'parmi',nin:'pas parmi',gt:'>',gte:'≥',lt:'<',lte:'≤',between:'entre',has:'contient',has_any:'contient un de',true:'oui',false:'non',answered:'est répondu',not_answered:'non répondu'};
+const COPS=['eq','ne','in','nin','gt','gte','lt','lte','answered','not_answered','has','has_any'];
+const AOPS={number:['eq','ne','gt','gte','lt','lte','between'],cat:['eq','ne','in','nin'],multi:['has','has_any'],bool:['true','false']};
+const LISTOPS=['in','nin','has_any'];
+
+const DEF_T={include:[],exclude:[],geo:null,strict_unknown:false,min_reliability:0,sampling:{mode:'open',oversample:null,max_invites:null}};
+const DEF_R={enabled:false,kind:'points',mode:'guaranteed',label:'',description:'',amount:0,unit:'',winners:0,validation:'auto',budget_total:null,max_rewarded:null,
+ conditions:{min_status:'validated',min_score:0.7,require_attention:true,min_account_age_days:0,min_reliability:0,auto_grant_score:0.8},
+ forfeit:{claim_deadline_days:null,revoke_on_admin_reject:true,revoke_on_fraud:true,notes:''},
+ delivery:{requires_contact:false,contact_label:'Numéro Wave / Orange Money',instructions:'',valid_until:null}};
+const DEF_P={share_profile:[],collect_contact:false,contact_purpose:''};
+const OPT2=[{value:'a',label:'Option A'},{value:'b',label:'Option B'}];
+const DEFB={single_choice:{options:OPT2},multi_choice:{options:OPT2},ranking:{options:[...OPT2,{value:'c',label:'Option C'}]},
+ matrix:{options:[{value:'1',label:'Pas d\'accord'},{value:'2',label:'Neutre'},{value:'3',label:'D\'accord'}],rows:[{value:'r1',label:'Ligne 1'}]},
+ product_rating:{items:[{key:'p1',label:'Produit 1'}],criteria:[{value:'overall',label:'Note globale'}],min:1,max:5},
+ scale:{min:1,max:5},stars:{max:5},slider:{min:0,max:100,step:1}};
+
+const newStudy=()=>({_tab:'gen',sponsor_id:S.sponsors[0].id,kind:'survey',title:'',summary:null,description:null,terms:null,cover_asset_id:null,starts_at:null,ends_at:null,
+ quota_total:0,estimated_minutes:5,tags:[],status:'draft',targeting:clone(DEF_T),reward:clone(DEF_R),privacy:clone(DEF_P),
+ definition:{intro:null,outro:null,pages:[{key:'p1',title:'',blocks:[]}],show_progress:true,allow_back:true}});
+
+function norm(){
+ if(E._n)return;
+ E.targeting=merge(DEF_T,E.targeting);E.reward=merge(DEF_R,E.reward);E.privacy=merge(DEF_P,E.privacy);E.tags=E.tags||[];
+ const d=E.definition=E.definition||{pages:[]};d.pages=(d.pages||[]).map(p=>({...p,blocks:p.blocks||[]}));
+ if(d.show_progress==null)d.show_progress=true;if(d.allow_back==null)d.allow_back=true;
+ if(!E.id&&d.pages[0]&&!d.pages[0].blocks.length)d.pages[0].blocks.push(newBlock('single_choice'));
+ E._n=1}
+
+const answKeys=()=>E.definition.pages.flatMap(p=>p.blocks).filter(b=>ANSW.has(b.kind)).map(b=>({key:b.key,text:b.text||''}));
+function nk(pre){const used=new Set(E.definition.pages.flatMap(p=>[p.key,...p.blocks.map(b=>b.key)]));let i=1;while(used.has(pre+i))i++;return pre+i}
+function newBlock(k){const b={key:nk('q'),kind:k,text:'',required:true,media:[]};Object.assign(b,clone(DEFB[k]||{}));
+ if(k==='media'){const a=S.assets[0];b.media=[a?{asset_id:a.id,kind:a.kind}:{url:'https://',kind:'image'}]}return b}
+function setKind(b,k){const keep={key:b.key,text:b.text,help:b.help,required:b.required!==false,media:b.media||[],show_if:b.show_if};
+ Object.keys(b).forEach(x=>delete b[x]);Object.assign(b,keep,{kind:k},clone(DEFB[k]||{}))}
+const attrOf=k=>S.meta.attrs.find(a=>a.key===k)||S.meta.attrs[0];
+
+// ---------- affichage / lecture des champs
+function fmt(v,t){switch(t){
+ case'csv':return(v||[]).join(', ');
+ case'dt':return toLoc(v);
+ case'opts':return(v||[]).map(o=>[o.value,o.label,o.exclusive?'excl':'',o.other?'other':''].filter((x,i)=>i<2||x).join(' | ')).join('\n');
+ case'items':return(v||[]).map(i=>[i.key,i.label,i.description||''].filter((x,j)=>j<2||x).join(' | ')).join('\n');
+ case'media':return(v||[]).map(m=>(m.asset_id||m.url)+(m.caption?' | '+m.caption:'')).join('\n');
+ default:return v==null?'':v}}
+const fmtScr=a=>(a||[]).map(x=>Array.isArray(x)?x[0]+'-'+x[1]:x).join(', ');
+function parse(t,raw,el,p){switch(t){
+ case'n':return raw===''?null:Number(raw);
+ case'n0':return raw===''?0:Number(raw);
+ case'i':return raw===''?null:Math.round(Number(raw));
+ case'i0':return raw===''?0:Math.round(Number(raw));
+ case's':return raw.trim()===''?null:raw;
+ case'S':return raw;
+ case'b':return el.checked;
+ case'csv':return raw.split(',').map(x=>x.trim()).filter(Boolean);
+ case'dt':return raw?new Date(raw).toISOString():null;
+ case'val':return pval(raw);
+ case'opts':{const old=getP(E,p)||[];return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const a=l.split('|').map(x=>x.trim());
+   const v=(a[0]||'').toLowerCase().replace(/[^a-z0-9_\-]/g,'_');const o={value:v,label:a[1]||a[0]};if(a.includes('excl'))o.exclusive=true;if(a.includes('other'))o.other=true;
+   const m=old.find(x=>x.value===v&&x.media);if(m)o.media=m.media;return o})}
+ case'items':{const old=getP(E,p)||[];return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const a=l.split('|').map(x=>x.trim());
+   const k=(a[0]||'').toLowerCase().replace(/[^a-z0-9_\-]/g,'_');const o={key:k,label:a[1]||a[0]};if(a[2])o.description=a[2];const m=old.find(x=>x.key===k&&x.media);o.media=m?m.media:[];return o})}
+ case'media':return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const a=l.split('|').map(x=>x.trim());const id=a[0];let m;
+   if(/^https:\/\//.test(id))m={url:id,kind:/\.(mp4|webm)(\?|$)/i.test(id)?'video':'image'};else{const as=S.assets.find(x=>x.id===id);m={asset_id:id,kind:as?as.kind:'image'}}
+   if(a[1])m.caption=a[1];return m});
+ case'scr':{const k=el.dataset.k;return raw.split(',').map(x=>x.trim()).filter(Boolean).map(x=>{
+   if(k==='number'||k==='slider'){const m=x.match(/^(-?[\d.]+)\s*-\s*(-?[\d.]+)$/);return m?[+m[1],+m[2]]:[+x,+x]}return pval(x)})}
+ case'cval':{const c=getP(E,p.replace(/\.value$/,''));if(LISTOPS.includes(c.op))return raw.split(',').map(x=>x.trim()).filter(x=>x!=='').map(pval);return raw.trim()===''?null:pval(raw)}
+ case'crit':{const c=getP(E,p.replace(/\.value$/,''));const k=attrOf(c.attr).kind;if(raw.trim()==='')return null;
+   if(k==='number'){if(c.op==='between'){const m=raw.split(/\s*[-;,]\s*/);return[+m[0],+m[1]]}return Number(raw)}
+   if(LISTOPS.includes(c.op))return raw.split(',').map(x=>x.trim()).filter(Boolean);return raw}
+ default:return raw}}
+
+// ---------- constructeurs de champs (liés par chemin E.xxx)
+const val=(p,t)=>esc(fmt(getP(E,p),t));
+const fi=(l,p,t='s',x='')=>`<label>${l}<input data-p="${p}" data-t="${t}" value="${val(p,t)}" ${x}></label>`;
+const fn=(l,p,t='n')=>fi(l,p,t,'type="number" step="any"');
+const fdi=(l,p)=>fi(l,p,'dt','type="datetime-local"');
+const ft=(l,p,t='s',rows=3,ph='')=>`<label>${l}<textarea data-p="${p}" data-t="${t}" rows="${rows}" placeholder="${esc(ph)}">${val(p,t)}</textarea></label>`;
+const fs=(l,p,opts,t='S',r=false)=>{const cur=getP(E,p);return `<label>${l}<select data-p="${p}" data-t="${t}" ${r?'data-r="1"':''}>${opts.map(([v,n])=>`<option value="${esc(v)}" ${String(cur??'')===String(v)?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`};
+const fc=(l,p,r=false)=>`<label class="ck"><input type="checkbox" data-p="${p}" data-t="b" ${getP(E,p)?'checked':''} ${r?'data-r="1"':''}> ${l}</label>`;
+
+// ---------- coque + onglets
+function renderEditor(){norm();
+ const tabs=[['gen','Général'],['def','Questionnaire'],['tg','Ciblage'],['rw','Récompense'],['pv','Confidentialité']];
+ if(E.id)tabs.push(['stats','Statistiques'],['res','Résultats'],['resp','Réponses'],['rws','Récompenses versées']);
+ $('#editor').innerHTML=`<div class="card"><div class="row" style="justify-content:space-between"><h3 style="margin:0">${E.id?esc(E.title||'Étude')+' <span class="chip '+esc(E.status)+'">'+esc(E.status)+'</span>':'Nouvelle étude'}</h3>
+ <div class="row">${E.id?`<button class="b ok" data-act="status" data-v="active">Activer</button><button class="b wa" data-act="status" data-v="paused">Pause</button><button class="b er" data-act="status" data-v="closed">Clôturer</button><button class="b s" data-act="status" data-v="draft">Brouillon</button><button class="b s" data-act="invite">Inviter maintenant</button><button class="b s" data-act="dup">Dupliquer</button><button class="b er" data-act="del">Supprimer</button>`:''}
+ <button class="b" data-act="save">Enregistrer</button><button class="b s" data-act="close">Fermer</button></div></div>
+ <div class="tabs">${tabs.map(([k,l])=>`<button class="${E._tab===k?'on':''}" data-act="tab" data-v="${k}">${l}</button>`).join('')}</div><div id="ed-body"></div></div>`;
+ renderTab()}
+function renderTab(){const b=$('#ed-body'),t=E._tab;
+ if(t==='gen')b.innerHTML=tGen();else if(t==='def')b.innerHTML=tDef();else if(t==='tg')b.innerHTML=tTg();else if(t==='rw')b.innerHTML=tRw();else if(t==='pv')b.innerHTML=tPv();
+ else{b.innerHTML='<div class="muted">Chargement…</div>';({stats:tStats,res:tRes,resp:tResp,rws:tRws})[t](b).catch(e=>toast(e.message))}}
+
+// ---------- Général
+function tGen(){return `<div class="row">${fs('Initiateur *','sponsor_id',S.sponsors.map(s=>[s.id,s.name]))}${fs('Type','kind',S.meta.kinds.map(k=>[k.value,k.label]))}${fi('Titre *','title','S')}</div>
+ <div class="row" style="margin-top:8px">${fi('Résumé (280 car. max)','summary','s')}</div>
+ ${ft('Description','description','s',4)}
+ <div class="row" style="margin-top:8px"><label>Image de couverture<select data-p="cover_asset_id" data-t="s">${assetOpts('image',E.cover_asset_id)}</select></label>${fdi('Début','starts_at')}${fdi('Clôture * (obligatoire pour activer)','ends_at')}${fn('Quota (0 = illimité)','quota_total','i0')}${fn('Durée estimée (min)','estimated_minutes','i0')}${fi('Tags (virgules)','tags','csv')}</div>
+ ${ft('Conditions générales de l\'étude','terms','s',4)}`}
+
+// ---------- Questionnaire
+function tDef(){const D=E.definition;
+ if(E._raw)return `<div class="muted">Édition JSON de la définition complète.</div><textarea id="rawdef" rows="26" style="width:100%">${esc(JSON.stringify(D,null,2))}</textarea><div class="row" style="margin-top:8px"><button class="b" data-act="raw-apply">Appliquer</button><button class="b s" data-act="raw-cancel">Annuler</button></div>`;
+ return `<div class="row">${fc('Afficher la progression','definition.show_progress')}${fc('Autoriser le retour arrière','definition.allow_back')}<button class="b s" data-act="raw">Éditer en JSON</button></div>
+ ${introHtml('intro','Introduction')}${D.pages.map((p,i)=>pageHtml(p,i)).join('')}<button class="b" data-act="p-add">+ Page</button>${introHtml('outro','Message de fin')}`}
+function introHtml(w,title){const I=E.definition[w];
+ if(!I)return `<div class="card"><button class="b s" data-act="intro-add" data-v="${w}">+ ${title}</button></div>`;
+ return `<div class="card"><div class="row" style="justify-content:space-between"><b>${title}</b><button class="b er" data-act="intro-del" data-v="${w}">Retirer</button></div>
+ <div class="row">${fi('Titre',`definition.${w}.title`)}</div>${ft('Texte',`definition.${w}.text`,'s',3)}
+ ${ft('Médias (id ou URL https | légende)',`definition.${w}.media`,'media',2)}<label>Ajouter depuis la médiathèque<select data-addmedia="definition.${w}.media"><option value="">—</option>${S.assets.map(a=>`<option value="${a.id}">${esc(a.name)} (${a.kind})</option>`).join('')}</select></label></div>`}
+function pageHtml(p,i){const P=`definition.pages.${i}`;const bt=(a,l)=>`<button class="b s" data-act="${a}" data-i="${i}">${l}</button>`;
+ return `<div class="page"><div class="row" style="justify-content:space-between"><b>Page ${i+1}</b><span>${bt('p-up','↑')} ${bt('p-dn','↓')} ${bt('p-del','✕')}</span></div>
+ <div class="row">${fi('Clé',P+'.key','S')}${fi('Titre',P+'.title')}${fi('Description',P+'.description')}</div>${condHtml(P+'.show_if',p.show_if)}
+ ${p.blocks.map((b,j)=>blockHtml(i,j,b)).join('')}
+ <div class="row"><label>Ajouter un bloc<select id="addk-${i}">${S.meta.block_kinds.map(k=>`<option value="${k.value}">${esc(k.label)}</option>`).join('')}</select></label><button class="b s" data-act="b-add" data-pi="${i}">+ Bloc</button></div></div>`}
+function condHtml(P,c){
+ if(!c)return `<button class="b s" data-act="cond-add" data-p="${P}">+ Condition d'affichage</button>`;
+ const ks=answKeys();
+ return `<div class="blk" style="border-style:dashed"><div class="row" style="justify-content:space-between"><b>Afficher seulement si</b><button class="b er" data-act="cond-clear" data-p="${P}">Retirer</button></div>
+ <div class="row">${fs('Combinaison',P+'.mode',[['all','toutes les règles'],['any','au moins une règle']])}</div>
+ ${c.rules.map((r,i)=>{const Q=`${P}.rules.${i}`;return `<div class="row" style="align-items:end"><label>Question<select data-p="${Q}.q" data-t="S">${ks.map(k=>`<option value="${esc(k.key)}" ${k.key===r.q?'selected':''}>${esc(k.key+' — '+k.text.slice(0,40))}</option>`).join('')}</select></label>
+ <label>Opérateur<select data-p="${Q}" data-t="op">${COPS.map(o=>`<option value="${o}" ${o===r.op?'selected':''}>${OPL[o]}</option>`).join('')}</select></label>
+ ${['answered','not_answered'].includes(r.op)?'':`<label>Valeur${LISTOPS.includes(r.op)?' (virgules)':''}<input data-p="${Q}.value" data-t="cval" value="${esc(Array.isArray(r.value)?r.value.join(', '):(r.value??''))}"></label>`}
+ <button class="b er" data-act="rule-del" data-p="${P}" data-i="${i}">✕</button></div>`}).join('')}
+ <button class="b s" data-act="rule-add" data-p="${P}">+ Règle</button></div>`}
+function blockHtml(pi,bi,b){
+ const P=`definition.pages.${pi}.blocks.${bi}`,k=b.kind,ans=ANSW.has(k),isOpt=['single_choice','multi_choice','ranking'].includes(k);
+ const KL=Object.fromEntries(S.meta.block_kinds.map(x=>[x.value,x.label]));
+ const btn=(a,l)=>`<button class="b s" data-act="${a}" data-pi="${pi}" data-bi="${bi}">${l}</button>`;
+ let h=`<div class="blk"><div class="row" style="justify-content:space-between"><b>${esc(KL[k]||k)} · ${esc(b.key)}</b><span>${btn('b-up','↑')} ${btn('b-dn','↓')} ${btn('b-del','✕')}</span></div>
+ <div class="row"><label>Type<select data-p="${P}" data-t="kind">${S.meta.block_kinds.map(x=>`<option value="${x.value}" ${x.value===k?'selected':''}>${esc(x.label)}</option>`).join('')}</select></label>${fi('Clé',P+'.key','S')}${ans?fc('Obligatoire',P+'.required'):''}</div>
+ <div class="row">${ft(ans?'Question':k==='info'?'Texte':'Légende',P+'.text','s',2)}${ft('Aide',P+'.help','s',2)}</div>`;
+ if(isOpt){h+=`<div class="row">${ft('Options — valeur | libellé | excl | other (une par ligne)',P+'.options','opts',4)}`;
+  if(k!=='ranking')h+=fs('Affichage',P+'.display',[['','Auto'],['list','Liste'],['dropdown','Menu déroulant'],['images','Images'],['buttons','Boutons']],'s');
+  if(k==='multi_choice')h+=fn('Min. choix',P+'.min_select','i')+fn('Max. choix',P+'.max_select','i');
+  if(k==='ranking')h+=fn('Top N',P+'.top_n','i')+fc('Ordre aléatoire',P+'.randomize');
+  h+='</div>'}
+ if(k==='matrix')h+=`<div class="row">${ft('Lignes — valeur | libellé',P+'.rows','opts',3)}${ft('Colonnes — valeur | libellé',P+'.options','opts',3)}</div>`;
+ if(k==='product_rating')h+=`<div class="row">${ft('Produits — clé | libellé | description',P+'.items','items',3)}${ft('Critères — valeur | libellé',P+'.criteria','opts',3)}${fn('Note min',P+'.min','i')}${fn('Note max',P+'.max','i')}${fc('Commentaire libre',P+'.allow_comment')}</div>`;
+ if(k==='number'||k==='slider')h+=`<div class="row">${fn('Min',P+'.min')}${fn('Max',P+'.max')}${k==='slider'?fn('Pas',P+'.step'):''}${fc('Entier',P+'.integer')}${fi('Unité',P+'.unit')}${k==='slider'?fi('Libellé bas',P+'.low_label')+fi('Libellé haut',P+'.high_label'):fi('Placeholder',P+'.placeholder')}</div>`;
+ if(k==='scale')h+=`<div class="row">${fn('Min',P+'.min','i')}${fn('Max',P+'.max','i')}${fi('Libellé bas',P+'.low_label')}${fi('Libellé haut',P+'.high_label')}</div>`;
+ if(k==='stars')h+=`<div class="row">${fn('Nombre d\'étoiles',P+'.max','i')}</div>`;
+ if(k==='nps')h+=`<div class="row">${fi('Libellé 0',P+'.low_label')}${fi('Libellé 10',P+'.high_label')}</div>`;
+ if(k==='text'||k==='long_text')h+=`<div class="row">${fn('Longueur min.',P+'.min_length','i')}${fn('Longueur max.',P+'.max_length','i')}${fi('Placeholder',P+'.placeholder')}</div>`;
+ h+=`<div class="row">${ft('Médias — id média ou URL https | légende',P+'.media','media',2)}<label>Ajouter depuis la médiathèque<select data-addmedia="${P}.media"><option value="">—</option>${S.assets.map(a=>`<option value="${a.id}">${esc(a.name)} (${a.kind})</option>`).join('')}</select></label></div>`;
+ h+=condHtml(P+'.show_if',b.show_if);
+ if(SCR.has(k))h+=b.screen?`<div class="blk" style="border-style:dashed"><div class="row" style="justify-content:space-between"><b>Question filtre (hors cible → fin de l'étude)</b><button class="b er" data-act="scr-del" data-p="${P}">Retirer</button></div>
+  <div class="row"><label>Autorisés (virgules${k==='number'||k==='slider'?' ; plages 18-35':''})<input data-p="${P}.screen.allow" data-t="scr" data-k="${k}" value="${esc(fmtScr(b.screen.allow))}"></label>
+  <label>Refusés<input data-p="${P}.screen.deny" data-t="scr" data-k="${k}" value="${esc(fmtScr(b.screen.deny))}"></label>${fi('Message hors cible',P+'.screen.message')}</div></div>`
+  :`<button class="b s" data-act="scr-add" data-p="${P}">+ Filtre (hors cible)</button> `;
+ if(ATT.has(k))h+=b.attention?`<div class="row" style="align-items:end"><label>Contrôle d'attention : réponse correcte attendue<input data-p="${P}.attention.correct" data-t="val" value="${esc(b.attention.correct??'')}"></label><button class="b er" data-act="att-del" data-p="${P}">Retirer</button></div>`
+  :`<button class="b s" data-act="att-add" data-p="${P}">+ Contrôle d'attention</button>`;
+ return h+'</div>'}
+
+// ---------- Ciblage
+function critHtml(P,c,inc){const A=attrOf(c.attr),ops=AOPS[A.kind];let v='';
+ if(A.kind!=='bool'){const single=['eq','ne','has'].includes(c.op);
+  if(A.options.length&&single)v=`<label>Valeur<select data-p="${P}.value" data-t="s"><option value="">—</option>${A.options.map(o=>`<option value="${esc(o.value)}" ${c.value===o.value?'selected':''}>${esc(o.label)}</option>`).join('')}</select></label>`;
+  else{const sh=Array.isArray(c.value)?(c.op==='between'?c.value.join('-'):c.value.join(', ')):(c.value??'');
+   v=`<label>Valeur${LISTOPS.includes(c.op)?' (virgules)':''}<input data-p="${P}.value" data-t="crit" value="${esc(sh)}" placeholder="${c.op==='between'?'18-35':A.options.slice(0,5).map(o=>o.value).join(', ')}"></label>`}}
+ return `<div class="row" style="align-items:end;margin:6px 0"><label>Attribut<select data-p="${P}" data-t="attr">${S.meta.attrs.map(a=>`<option value="${a.key}" ${a.key===c.attr?'selected':''}>${esc(a.label)}${a.sensitive?' ⚠':''}</option>`).join('')}</select></label>
+ <label>Opérateur<select data-p="${P}" data-t="op">${ops.map(o=>`<option value="${o}" ${o===c.op?'selected':''}>${OPL[o]}</option>`).join('')}</select></label>${v}
+ ${inc?fs('Mode',P+'.mode',[['must','obligatoire'],['prefer','préféré']])+fn('Poids',P+'.weight','n'):''}<button class="b er" data-act="crit-del" data-p="${P.replace(/\.\d+$/,'')}" data-i="${P.split('.').pop()}">✕</button></div>`}
+function tTg(){const T=E.targeting,G=T.geo;
+ return `<div class="card"><b>Critères à inclure</b><div class="muted">Les critères « obligatoire » filtrent ; les « préféré » classent les invitations.</div>${T.include.map((c,i)=>critHtml('targeting.include.'+i,c,true)).join('')}<button class="b s" data-act="crit-add" data-p="targeting.include">+ Critère</button></div>
+ <div class="card"><b>Critères à exclure</b>${T.exclude.map((c,i)=>critHtml('targeting.exclude.'+i,c,false)).join('')}<button class="b s" data-act="crit-add" data-p="targeting.exclude">+ Critère</button></div>
+ <div class="card"><b>Zone géographique</b>${G?`<div class="row">${fs('Mode','targeting.geo.mode',[['must','obligatoire'],['prefer','préféré']])}${fi('Villes (virgules)','targeting.geo.cities','csv')}<button class="b er" data-act="geo-off">Retirer</button></div>
+  ${G.circles.map((c,i)=>`<div class="row" style="align-items:end">${fn('Latitude',`targeting.geo.circles.${i}.lat`)}${fn('Longitude',`targeting.geo.circles.${i}.lon`)}${fn('Rayon (km)',`targeting.geo.circles.${i}.radius_km`)}${fi('Libellé',`targeting.geo.circles.${i}.label`)}<button class="b er" data-act="circ-del" data-i="${i}">✕</button></div>`).join('')}
+  <button class="b s" data-act="circ-add">+ Cercle</button>`:`<button class="b s" data-act="geo-on">Activer le ciblage géographique</button>`}</div>
+ <div class="card"><b>Échantillonnage</b><div class="row">${fs('Mode','targeting.sampling.mode',[['open','Ouvert (tous les ciblés)'],['invite_only','Sur invitation seulement']])}${fn('Sur-échantillonnage (×)','targeting.sampling.oversample')}${fn('Invitations max.','targeting.sampling.max_invites','i')}${fn('Fiabilité min. (0-1)','targeting.min_reliability','n0')}${fc('Strict : exclure si donnée inconnue','targeting.strict_unknown')}</div></div>
+ <div class="row"><button class="b" data-act="preview">Estimer la cible</button></div><div id="tg-prev"></div>`}
+
+// ---------- Récompense / Confidentialité
+function tRw(){const R=E.reward,lot=R.mode==='lottery';
+ let h=`<div class="card">${fc('Cette étude offre une récompense','reward.enabled',true)}</div>`;if(!R.enabled)return h;
+ h+=`<div class="card"><b>Récompense</b><div class="row">${fs('Type','reward.kind',S.meta.reward_kinds.map(k=>[k.value,k.label]))}${fs('Mode','reward.mode',[['guaranteed','Garantie'],['lottery','Tirage au sort']],'S',true)}${fi('Libellé *','reward.label','S')}${fn('Montant','reward.amount','n0')}${fi('Unité (FCFA, pts…)','reward.unit')}${lot?fn('Gagnants','reward.winners','i0'):''}</div>
+ ${ft('Description','reward.description','s',2)}<div class="row">${fs('Validation','reward.validation',[['auto','Automatique'],['manual','Manuelle'],['hybrid','Hybride']])}${fn('Budget total','reward.budget_total')}${fn('Bénéficiaires max.','reward.max_rewarded','i')}</div></div>
+ <div class="card"><b>Conditions</b><div class="row">${fs('Statut minimal','reward.conditions.min_status',[['validated','Validée'],['indicative','Au moins indicative']])}${fn('Score min. (0-1)','reward.conditions.min_score','n0')}${fn('Score auto-attribution (hybride)','reward.conditions.auto_grant_score','n0')}${fn('Ancienneté compte (jours)','reward.conditions.min_account_age_days','i0')}${fn('Fiabilité min. (0-1)','reward.conditions.min_reliability','n0')}${fc('Contrôles d\'attention réussis','reward.conditions.require_attention')}</div></div>
+ <div class="card"><b>Perte</b><div class="row">${fn('Délai de réclamation (jours)','reward.forfeit.claim_deadline_days','i')}${fc('Retirer si invalidée par l\'admin','reward.forfeit.revoke_on_admin_reject')}${fc('Retirer si fraude','reward.forfeit.revoke_on_fraud')}</div>${ft('Notes','reward.forfeit.notes','s',2)}</div>
+ <div class="card"><b>Remise</b><div class="row">${fc('Demander un numéro / contact','reward.delivery.requires_contact')}${fi('Libellé du contact','reward.delivery.contact_label')}${fdi('Valable jusqu\'au','reward.delivery.valid_until')}</div>${ft('Instructions','reward.delivery.instructions','s',2)}</div>`;
+ return h}
+function tPv(){return `<div class="card"><b>Profil joint aux réponses (par tranches)</b><div class="chk" style="margin-top:6px">${S.meta.share_fields.map(f=>`<label class="ck"><input type="checkbox" data-p="privacy.share_profile" data-t="chk" data-v="${f}" ${E.privacy.share_profile.includes(f)?'checked':''}> ${f}</label>`).join('')}</div></div>
+ <div class="card">${fc('Collecter un contact (numéro) avec consentement explicite','privacy.collect_contact')}${fi('Finalité affichée au participant','privacy.contact_purpose')}</div>`}
+
+// ---------- Statistiques
+async function tStats(el){const s=await api(`/study-admin/studies/${E.id}/stats`);const mx=Math.max(1,...s.per_day.map(d=>d.n));
+ el.innerHTML=`<div class="card"><b>Entonnoir</b><div style="margin-top:8px">${Object.entries(s.funnel).map(([k,v])=>`<span class="chip">${k} ${v}</span>`).join('')}</div>
+ <div class="row" style="gap:24px;margin-top:10px"><div class="kv">Complétion<b>${s.completion_rate==null?'—':Math.round(s.completion_rate*100)+' %'}</b></div><div class="kv">Durée moyenne<b>${s.avg_duration_s} s</b></div><div class="kv">Score moyen<b>${Math.round(s.avg_score*100)} %</b></div><div class="kv">Valides / quota<b>${s.valid}${s.quota_total?' / '+s.quota_total:''}</b></div></div>
+ ${s.quota_total?`<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100,s.valid/s.quota_total*100)}%"></i></div>`:''}</div>
+ <div class="card"><b>Qualité</b><div style="margin-top:8px">${Object.entries(s.quality).map(([k,v])=>`<span class="chip ${k}">${k} ${v}</span>`).join('')||'—'}</div></div>
+ <div class="card"><b>Réponses par jour</b>${s.per_day.map(d=>`<div class="row" style="align-items:center;flex-wrap:nowrap;margin:3px 0"><span class="muted" style="width:90px">${d.date}</span><div class="bar" style="flex:1"><i style="width:${d.n/mx*100}%"></i></div><span class="muted" style="width:30px;text-align:right">${d.n}</span></div>`).join('')||'<span class="muted">Aucune.</span>'}</div>`}
+
+// ---------- Résultats
+const BYF=['','age_band','gender','city','occupation_group','education_level','income_band','household_size'];
+async function tRes(el){const R=E._res||(E._res={by:'',st:['validated','indicative']});
+ el.innerHTML=`<div class="card"><div class="row"><label>Segmenter par<select id="res-by">${BYF.map(f=>`<option value="${f}" ${R.by===f?'selected':''}>${f||'— aucun —'}</option>`).join('')}</select></label>
+ <div class="chk" id="res-st">${['validated','indicative','pending','rejected'].map(s=>`<label class="ck"><input type="checkbox" value="${s}" ${R.st.includes(s)?'checked':''}> ${s}</label>`).join('')}</div><button class="b" data-act="res-go">Actualiser</button>
+ <button class="b s" data-act="export" data-v="csv">Export CSV</button><button class="b s" data-act="export" data-v="json">Export JSON</button></div></div><div id="res-out" class="muted">Chargement…</div>`;
+ await loadRes()}
+async function loadRes(){const R=E._res;R.by=$('#res-by').value;R.st=$$('#res-st input:checked').map(i=>i.value);
+ const r=await api(`/study-admin/studies/${E.id}/results`,{query:{by:R.by,status:R.st}});$('#res-out').innerHTML=resHtml(r)}
+const bars=(cs,tot)=>cs.map(c=>`<div class="row" style="align-items:center;flex-wrap:nowrap;margin:3px 0"><span style="width:220px">${esc(c.label)}</span><div class="bar" style="flex:1"><i style="width:${tot?c.n/tot*100:0}%"></i></div><span class="muted" style="width:96px;text-align:right">${c.n} · ${tot?Math.round(c.n/tot*100):0} %</span></div>`).join('');
+function grp(q){const gs=Object.entries(q.groups||{});if(!gs.length)return'';
+ if(q.counts)return `<table style="margin-top:8px"><thead><tr><th></th>${gs.map(([g])=>`<th>${esc(g)}</th>`).join('')}</tr></thead><tbody>${q.counts.map((c,i)=>`<tr><td>${esc(c.label)}</td>${gs.map(([,v])=>{const n=v.counts?.[i]?.n??0,t=q.kind==='multi_choice'?v.n:(v.counts||[]).reduce((a,x)=>a+x.n,0);return `<td>${n} · ${t?Math.round(n/t*100):0} %</td>`}).join('')}</tr>`).join('')}</tbody></table>`;
+ return `<table style="margin-top:8px"><thead><tr><th>Groupe</th><th>n</th><th>Moyenne</th></tr></thead><tbody>${gs.map(([g,v])=>`<tr><td>${esc(g)}</td><td>${v.n}</td><td>${v.mean??'—'}</td></tr>`).join('')}</tbody></table>`}
+function resHtml(r){
+ return `<div class="card"><b>${r.n} réponse(s)</b>${r.by?' · '+Object.entries(r.groups).map(([g,n])=>`<span class="chip">${esc(g)} ${n}</span>`).join(''):''}</div>`+r.questions.map(q=>{let b='';
+  if(q.counts){const tot=q.kind==='multi_choice'?q.n:q.counts.reduce((a,c)=>a+c.n,0);b=bars(q.counts,tot);
+   if(q.mean!=null)b+=`<div class="muted">Moyenne <b>${q.mean}</b>${q.nps!=null?` · NPS <b>${q.nps}</b> (promoteurs ${q.promoters}, détracteurs ${q.detractors})`:''}</div>`;b+=grp(q)}
+  else if(q.hist){const mx=Math.max(1,...q.hist);b=`<div class="muted">moy. <b>${q.mean}</b> · méd. ${q.median} · min ${q.min} · max ${q.max} · Q1 ${q.p25} · Q3 ${q.p75}</div><div style="display:flex;gap:3px;align-items:end;height:60px;margin-top:6px">${q.hist.map(h=>`<i style="flex:1;background:var(--pr);height:${h/mx*100}%;border-radius:3px" title="${h}"></i>`).join('')}</div>${grp(q)}`}
+  else if(q.texts)b=`<ul style="margin:6px 0 0 16px">${q.texts.map(t=>`<li>${esc(t)}</li>`).join('')||'<li class="muted">Aucune</li>'}</ul>`;
+  else if(q.ranking)b=`<table><thead><tr><th>Option</th><th>Rang moyen</th><th>1ers choix</th><th>n</th></tr></thead><tbody>${q.ranking.map(x=>`<tr><td>${esc(x.label)}</td><td>${x.avg_rank??'—'}</td><td>${x.first}</td><td>${x.n}</td></tr>`).join('')}</tbody></table>`;
+  else if(q.rows)b=q.rows.map(r=>`<div style="margin-top:6px"><b>${esc(r.row)}</b>${bars(r.counts,r.counts.reduce((a,c)=>a+c.n,0))}</div>`).join('');
+  else if(q.items)b=q.items.map(i=>`<div style="margin-top:8px"><b>${esc(i.item)}</b>${i.criteria.map(c=>`<div class="muted">${esc(c.criterion)} : moy. <b>${c.mean??'—'}</b> (n=${c.n}) · répartition ${c.counts.join(' / ')}</div>`).join('')}${i.comments.length?`<ul style="margin:4px 0 0 16px">${i.comments.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}</div>`).join('');
+  return `<div class="card"><b>${esc(q.text||q.key)}</b> <span class="muted">${q.kind} · n=${q.n}</span>${b}</div>`}).join('')}
+
+// ---------- Réponses
+async function tResp(el){const R=E._rs||(E._rs={off:0,lim:50,st:['validated','indicative','rejected','pending'],out:'',sel:new Set(),items:[],total:0});
+ el.innerHTML=`<div class="card"><div class="row"><div class="chk" id="rs-st">${['validated','indicative','rejected','pending'].map(s=>`<label class="ck"><input type="checkbox" value="${s}" ${R.st.includes(s)?'checked':''}> ${s}</label>`).join('')}</div>
+ <label>Issue<select id="rs-out"><option value="">Toutes</option><option value="completed" ${R.out==='completed'?'selected':''}>Terminées</option><option value="screened_out" ${R.out==='screened_out'?'selected':''}>Hors cible</option></select></label>
+ <label>Par page<select id="rs-lim">${[25,50,100,200].map(n=>`<option ${R.lim===n?'selected':''}>${n}</option>`).join('')}</select></label><button class="b" data-act="resp-go">Filtrer</button></div></div>
+ <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th><input type="checkbox" id="rs-all"></th><th>Date</th><th>Participant</th><th>Issue</th><th>Statut</th><th>Score</th><th>Raisons</th><th>Récompense</th></tr></thead><tbody id="rs-body"></tbody></table></div>
+ <div class="row" style="justify-content:space-between;margin-top:8px"><span id="rs-count" class="muted"></span><span><button class="b s" data-act="resp-prev">← Précédent</button> <button class="b s" data-act="resp-next">Suivant →</button></span></div>
+ <div class="card"><div class="row"><b id="rs-sel">0 sélectionnée(s)</b><select id="dc-st"><option value="validated">Valider</option><option value="indicative">Indicative</option><option value="rejected">Rejeter</option></select><input id="dc-reason" placeholder="Motif (3 car. min.)" style="flex:1;min-width:200px"><button class="b" data-act="decide">Appliquer</button></div></div>`;
+ await loadResp()}
+async function loadResp(){const R=E._rs;R.st=$$('#rs-st input:checked').map(i=>i.value);R.out=$('#rs-out').value;R.lim=+$('#rs-lim').value;
+ const d=await api(`/study-admin/studies/${E.id}/responses`,{query:{status:R.st,outcome:R.out,limit:R.lim,offset:R.off}});R.items=d.items;R.total=d.total;R.sel.clear();
+ $('#rs-body').innerHTML=d.items.map(r=>`<tr><td><input type="checkbox" class="rsel" data-id="${r.id}"></td><td>${fd(r.submitted_at)}</td><td class="muted">${esc(r.participant)}</td><td>${esc(r.outcome)}</td><td><span class="chip ${r.quality_status}">${r.quality_status}</span></td><td>${Math.round(r.score*100)} %</td>
+  <td>${(r.reasons||[]).filter(x=>x.severity!=='info').map(x=>`<span class="chip">${esc(x.code)}</span>`).join('')||'—'}</td><td>${r.reward?`<span class="chip ${r.reward.status}">${esc(r.reward.status_label)}</span>`:'—'}</td></tr>
+  <tr><td colspan="8"><details><summary>Détail</summary><div class="muted">Profil : ${esc(JSON.stringify(r.profile||{}))} · durée ${r.duration_seconds}s · évaluateur ${esc(r.evaluator)}${r.contact?' · contact '+esc(JSON.stringify(r.contact)):''}</div>
+  <ul style="margin:6px 0 0 16px">${r.answers.map(a=>`<li><b>${esc(a.question)}</b> : ${esc(a.answer)}</li>`).join('')}</ul></details></td></tr>`).join('')||'<tr><td colspan="8" class="muted">Aucune réponse.</td></tr>';
+ $('#rs-count').textContent=`${d.total} réponse(s) · ${Math.min(R.off+1,d.total)}–${Math.min(R.off+R.lim,d.total)}`;$('#rs-sel').textContent='0 sélectionnée(s)'}
+
+// ---------- Récompenses versées
+async function tRws(el){const R=E._rw||(E._rw={st:'',off:0});
+ const d=await api(`/study-admin/studies/${E.id}/rewards`,{query:{status:R.st,limit:100,offset:R.off}});
+ const reasons=Object.entries(S.meta.refusal_reasons||{});const lot=E.reward.mode==='lottery';
+ el.innerHTML=`<div class="card"><div>${Object.entries(d.summary).map(([k,v])=>`<span class="chip ${k}">${k} ${v.n} · ${Math.round(v.amount)}</span>`).join('')||'<span class="muted">Aucune récompense.</span>'}</div>
+ <div class="row" style="margin-top:8px"><label>Filtrer<select id="rw-f"><option value="">Tous</option>${['pending','entered','granted','delivered','refused','revoked','expired'].map(s=>`<option ${R.st===s?'selected':''}>${s}</option>`).join('')}</select></label>
+ <label>Motif (refus / retrait)<select id="rw-reason">${reasons.map(([c,l])=>`<option value="${c}">${esc(l)}</option>`).join('')}</select></label>${fi('Note','_x','S','id="rw-note"').replace(/data-p="_x" data-t="S"/,'')}
+ <label>Référence de remise<input id="rw-ref"></label><button class="b s" data-act="rw-f">Filtrer</button></div></div>
+ <div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Récompense</th><th>Participant</th><th>Statut</th><th>Score</th><th>Motif</th><th>Contact</th><th>Actions</th></tr></thead><tbody>${d.items.map(r=>`<tr><td><b>${esc(r.headline)}</b>${r.code?'<div class="muted">code : '+esc(r.code)+'</div>':''}</td><td class="muted">${esc(r.participant)}</td><td><span class="chip ${r.status}">${esc(r.status_label)}</span></td><td>${r.score==null?'—':Math.round(r.score*100)+' %'}</td><td class="muted">${esc(r.reason_label||'')}</td><td class="muted">${esc(r.phone||'')} ${esc(r.name||'')}${r.reference?'<div>réf '+esc(r.reference)+'</div>':''}</td>
+  <td style="white-space:nowrap">${['pending','entered','refused'].includes(r.status)?`<button class="b ok" data-act="rw-act" data-a="approve" data-id="${r.id}">Accorder</button> `:''}${['pending','entered'].includes(r.status)?`<button class="b er" data-act="rw-act" data-a="refuse" data-id="${r.id}">Refuser</button> `:''}${r.status==='granted'?`<button class="b" data-act="rw-act" data-a="deliver" data-id="${r.id}">Remis</button> `:''}${['granted','delivered'].includes(r.status)?`<button class="b wa" data-act="rw-act" data-a="revoke" data-id="${r.id}">Retirer</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Aucune.</td></tr>'}</tbody></table></div>
+ <div class="card"><b>Codes de bons</b> <span class="muted">(${d.codes_free} libre(s))</span><textarea id="rw-codes" rows="3" placeholder="Un code par ligne" style="width:100%;margin-top:6px"></textarea><button class="b" data-act="codes" style="margin-top:6px">Ajouter les codes</button></div>
+ ${lot?`<div class="card"><b>Tirage au sort</b><div class="row">${'<label>Gagnants<input id="dr-n" type="number" min="1"></label><label>Graine (optionnel)<input id="dr-seed" type="number"></label>'}<button class="b" data-act="draw">Lancer le tirage</button></div></div>`:''}`}
+
+// ---------- sauvegarde
+function payload(){const r=clone(E.reward);if(!r.unit)r.unit=null;if(!r.label)r.label=null;
+ return {sponsor_id:E.sponsor_id,kind:E.kind,title:E.title,summary:E.summary,description:E.description,cover_asset_id:E.cover_asset_id,starts_at:E.starts_at,ends_at:E.ends_at,quota_total:E.quota_total||0,estimated_minutes:E.estimated_minutes||5,terms:E.terms,tags:E.tags||[],targeting:clone(E.targeting),reward:r,privacy:clone(E.privacy),definition:clone(E.definition)}}
+async function reload(id){const tab=E._tab;E=await api('/study-admin/studies/'+(id||E.id));E._tab=tab;renderEditor();loadStudies()}
+async function save(){const b=payload();
+ if(E.id){const r=await api('/study-admin/studies/'+E.id,{method:'PATCH',body:b});toast(r.version_bumped?'Enregistré (nouvelle version du questionnaire)':'Enregistré');await reload()}
+ else{const r=await api('/study-admin/studies',{method:'POST',body:b});toast('Étude créée');await reload(r.id)}}
+
+// ---------- événements
+function onMisc(e){const el=e.target;if(!el.classList)return;
+ if(el.dataset.addmedia&&el.value){const a=S.assets.find(x=>x.id===el.value),arr=getP(E,el.dataset.addmedia)||[];arr.push({asset_id:a.id,kind:a.kind});setP(E,el.dataset.addmedia,arr);renderTab();return}
+ if(el.classList.contains('rsel')){const R=E._rs;el.checked?R.sel.add(el.dataset.id):R.sel.delete(el.dataset.id);$('#rs-sel').textContent=R.sel.size+' sélectionnée(s)'}
+ if(el.id==='rs-all'){const R=E._rs;R.items.forEach(r=>el.checked?R.sel.add(r.id):R.sel.delete(r.id));$$('.rsel').forEach(c=>c.checked=el.checked);$('#rs-sel').textContent=R.sel.size+' sélectionnée(s)'}}
+function onEdit(e){const el=e.target,p=el.dataset&&el.dataset.p;if(!p)return;const t=el.dataset.t;
+ if(e.type==='input'&&(el.tagName==='SELECT'||el.type==='checkbox'))return;
+ if(t==='chk'){if(e.type!=='change')return;const a=getP(E,p)||[],i=a.indexOf(el.dataset.v);if(el.checked){if(i<0)a.push(el.dataset.v)}else if(i>=0)a.splice(i,1);setP(E,p,a);return}
+ if(t==='attr'){if(e.type!=='change')return;const c=getP(E,p);c.attr=el.value;c.op=AOPS[attrOf(c.attr).kind][0];c.value=null;renderTab();return}
+ if(t==='op'){if(e.type!=='change')return;const c=getP(E,p);c.op=el.value;c.value=null;renderTab();return}
+ if(t==='kind'){if(e.type!=='change')return;setKind(getP(E,p),el.value);renderTab();return}
+ setP(E,p,parse(t,el.value,el,p));
+ if(e.type==='change'&&el.dataset.r)renderTab()}
+async function onClick(e){const a=e.target.closest('[data-act]');if(!a)return;const act=a.dataset.act,d=a.dataset,D=E.definition;
+ switch(act){
+ case'tab':E._tab=d.v;renderEditor();break;
+ case'save':await save();break;
+ case'close':E=null;$('#editor').innerHTML='';break;
+ case'status':{await save();const r=await api(`/study-admin/studies/${E.id}/status`,{method:'POST',body:{status:d.v}});toast('Statut : '+d.v+(r.warnings&&r.warnings.length?' — '+r.warnings.join(' | '):''));await reload();break}
+ case'invite':{const r=await api(`/study-admin/studies/${E.id}/invite`,{method:'POST'});toast(`${r.invited} invitation(s) envoyée(s)`);break}
+ case'dup':{const n=await api(`/study-admin/studies/${E.id}/duplicate`,{method:'POST'});E._tab='gen';await reload(n.id);toast('Copie créée');break}
+ case'del':if(confirm('Supprimer cette étude (brouillon sans réponse) ?')){await api('/study-admin/studies/'+E.id,{method:'DELETE'});E=null;$('#editor').innerHTML='';loadStudies()}break;
+ // questionnaire
+ case'raw':E._raw=true;renderTab();break;
+ case'raw-cancel':E._raw=false;renderTab();break;
+ case'raw-apply':try{E.definition=JSON.parse($('#rawdef').value);E._raw=false;renderTab()}catch{toast('JSON invalide')}break;
+ case'intro-add':D[d.v]={title:'',text:'',media:[]};renderTab();break;
+ case'intro-del':D[d.v]=null;renderTab();break;
+ case'p-add':D.pages.push({key:nk('p'),title:'',blocks:[newBlock('single_choice')]});renderTab();break;
+ case'p-del':if(D.pages.length>1&&confirm('Supprimer cette page ?')){D.pages.splice(+d.i,1);renderTab()}break;
+ case'p-up':case'p-dn':mv(D.pages,+d.i,act==='p-up'?-1:1);renderTab();break;
+ case'b-add':D.pages[+d.pi].blocks.push(newBlock($('#addk-'+d.pi).value));renderTab();break;
+ case'b-del':D.pages[+d.pi].blocks.splice(+d.bi,1);renderTab();break;
+ case'b-up':case'b-dn':mv(D.pages[+d.pi].blocks,+d.bi,act==='b-up'?-1:1);renderTab();break;
+ case'cond-add':{const ks=answKeys();if(!ks.length)return toast('Ajoutez d\'abord une question');setP(E,d.p,{mode:'all',rules:[{q:ks[0].key,op:'eq',value:null}]});renderTab();break}
+ case'cond-clear':setP(E,d.p,undefined);renderTab();break;
+ case'rule-add':{const ks=answKeys();getP(E,d.p).rules.push({q:ks[0]?.key||'',op:'eq',value:null});renderTab();break}
+ case'rule-del':{const c=getP(E,d.p);c.rules.splice(+d.i,1);if(!c.rules.length)setP(E,d.p,undefined);renderTab();break}
+ case'scr-add':setP(E,d.p+'.screen',{allow:[],deny:[],message:null});renderTab();break;
+ case'scr-del':setP(E,d.p+'.screen',undefined);renderTab();break;
+ case'att-add':setP(E,d.p+'.attention',{correct:null});renderTab();break;
+ case'att-del':setP(E,d.p+'.attention',undefined);renderTab();break;
+ // ciblage
+ case'crit-add':getP(E,d.p).push({attr:S.meta.attrs[0].key,op:AOPS[S.meta.attrs[0].kind][0],value:null,mode:'must',weight:1});renderTab();break;
+ case'crit-del':getP(E,d.p).splice(+d.i,1);renderTab();break;
+ case'geo-on':E.targeting.geo={circles:[],cities:[],h3_res:null,h3_cells:[],mode:'must'};renderTab();break;
+ case'geo-off':E.targeting.geo=null;renderTab();break;
+ case'circ-add':E.targeting.geo.circles.push({lat:14.6937,lon:-17.4441,radius_km:10,label:''});renderTab();break;
+ case'circ-del':E.targeting.geo.circles.splice(+d.i,1);renderTab();break;
+ case'preview':{const r=await api('/study-admin/targeting/preview',{method:'POST',body:{targeting:E.targeting}});
+  const ch=o=>Object.entries(o||{}).map(([k,v])=>`<span class="chip">${esc(k)} ${v}</span>`).join('')||'—';
+  $('#tg-prev').innerHTML=`<div class="card"><div class="row" style="gap:24px"><div class="kv">Utilisateurs<b>${r.users_total}</b></div><div class="kv">Ayant consenti<b>${r.users_consented}</b></div><div class="kv">Cible éligible<b>${r.eligible}</b></div><div class="kv">Réponses attendues<b>${r.expected_responses}</b></div></div>
+   <div style="margin-top:8px"><b>Genre</b> ${ch(r.by_gender)}</div><div><b>Âge</b> ${ch(r.by_age)}</div><div><b>Villes</b> ${ch(r.by_city)}</div><div><b>Données manquantes</b> ${ch(r.unknown_by_attribute)}</div><div class="muted" style="margin-top:6px">${esc(r.note)}</div></div>`;break}
+ // résultats / réponses / récompenses
+ case'res-go':await loadRes();break;
+ case'export':await download(`/study-admin/studies/${E.id}/export`,{fmt:d.v,status:$$('#res-st input:checked').map(i=>i.value)},`etude-${E.id.slice(0,8)}.${d.v}`);break;
+ case'resp-go':E._rs.off=0;await loadResp();break;
+ case'resp-prev':E._rs.off=Math.max(0,E._rs.off-E._rs.lim);await loadResp();break;
+ case'resp-next':if(E._rs.off+E._rs.lim<E._rs.total){E._rs.off+=E._rs.lim;await loadResp()}break;
+ case'decide':{const R=E._rs,reason=$('#dc-reason').value.trim();if(!R.sel.size)return toast('Aucune sélection');if(reason.length<3)return toast('Motif requis (3 car. min.)');
+  const r=await api(`/study-admin/studies/${E.id}/responses/decide`,{method:'POST',body:{ids:[...R.sel],status:$('#dc-st').value,reason}});toast(`${r.updated} mise(s) à jour`);await loadResp();break}
+ case'rw-f':E._rw.st=$('#rw-f').value;renderTab();break;
+ case'rw-act':{const body={action:d.a,reason_code:['refuse','revoke'].includes(d.a)?$('#rw-reason').value:null,note:$('#rw-note').value||null,reference:d.a==='deliver'?($('#rw-ref').value||null):null};
+  await api('/study-admin/rewards/'+d.id+'/action',{method:'POST',body});toast('OK');renderTab();break}
+ case'codes':{const codes=$('#rw-codes').value.split('\n').map(x=>x.trim()).filter(Boolean);if(!codes.length)return toast('Aucun code');
+  const r=await api(`/study-admin/studies/${E.id}/codes`,{method:'POST',body:{codes}});toast(`${r.added} ajouté(s), ${r.assigned_to_waiting} attribué(s)`);renderTab();break}
+ case'draw':{if(!confirm('Lancer le tirage ? Action définitive.'))return;const n=$('#dr-n').value,s=$('#dr-seed').value;
+  const r=await api(`/study-admin/studies/${E.id}/draw`,{method:'POST',body:{winners:n?+n:null,seed:s?+s:null}});toast(`${r.winners} gagnant(s) sur ${r.entries} (graine ${r.seed})`);await reload();break}
+ }}
+$('#editor').addEventListener('input',onEdit);
+$('#editor').addEventListener('change',e=>{onMisc(e);onEdit(e)});
+$('#editor').addEventListener('click',e=>onClick(e).catch(x=>toast(x.message)));
+if(S.access)start().catch(()=>logout());
+</script>
+</body></html>
