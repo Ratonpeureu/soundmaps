@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Application
-    APP_NAME: str = "SunuSound"
+    APP_NAME: str = "Data Map"
     APP_ENV: Literal["development", "staging", "production"] = "development"
     API_V1_PREFIX: str = "/api/v1"
     LOG_LEVEL: str = "INFO"

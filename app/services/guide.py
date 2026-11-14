@@ -49,7 +49,7 @@ def build(tenant_settings: dict | None = None, role: str = "contributor") -> dic
 
     # ============================================================ 1. Bienvenue
     sections.append(sec(
-        "bienvenue", "waving_hand", "#0E9F9A", "Bienvenue sur SunuSound",
+        "bienvenue", "waving_hand", "#0E9F9A", "Bienvenue sur Data Map",
         "Une carte du bruit construite par tous, avec le micro de nos téléphones.",
         P("SunuSound est une **carte sonore participative**. Chaque personne qui fait une mesure ajoute une "
           "petite pièce au puzzle. Ensemble, nous voyons où il y a du bruit, à quelle heure, et comment cela évolue."),

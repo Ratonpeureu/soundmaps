@@ -68,7 +68,15 @@ async function raw(path,{method='GET',body,query,form}={},retry=true){
  let r;try{r=await fetch(url,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),Authorization:'Bearer '+S.access},body:form||(body?JSON.stringify(body):undefined)})}catch{throw new Error('Serveur injoignable')}
  if(r.status===401&&retry&&await refreshTokens())return raw(path,{method,body,query,form},false);
  if(r.status===401){logout();throw new Error('Session expirée')}return r}
-async function api(path,o){const r=await raw(path,o);const d=await r.json().catch(()=>null);if(!r.ok){const t=d?.detail;throw new Error(typeof t==='string'?t:(t?.code?t.code+(t.errors?' : '+t.errors.join(' ; '):''):'Erreur '+r.status))}return d}
+
+const ERR={invalid_definition:'Définition invalide',no_profiles_for_slot:'Impossible de créer des profils pour cette rubrique : passez-la en « Questions directes » ou décochez « Plusieurs profils »',survey_too_large:'Enquête trop grande',empty_slot:'Rubrique vide',duplicate_indicator:'Même question présente deux fois',indicator_wrong_domain:'Question hors du domaine choisi',sensitive_axis_not_allowed:'Axe sensible non autorisé',kind_mismatch:'Type de question incompatible',survey_not_found:'Enquête introuvable',invalid_credentials:'Identifiants incorrects',insufficient_role:'Droits insuffisants'};
+function friendly(d,status){
+  const x=d?.detail;
+  if(typeof x==='string')return ERR[x]||x;
+  if(x&&x.code){let m=ERR[x.code]||x.code;if(x.slot)m+=' ('+x.slot+')';
+    if(x.errors&&x.errors.length)m+=' : '+x.errors.map(e=>ERR[String(e).split(':')[0]]||e).join(' ; ');return m}
+  return 'Erreur '+status}
+async function api(path,o){const r=await raw(path,o);const d=await r.json().catch(()=>null);if(!r.ok)throw new Error(friendly(d,r.status));return d}
 async function download(path,query,name){const r=await raw(path,{query});if(!r.ok)throw new Error('Erreur '+r.status);const u=URL.createObjectURL(await r.blob());const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),5000)}
 async function loadThumbs(root){for(const img of $$('img[data-asset]',root)){const id=img.dataset.asset;try{thumbs[id]??=URL.createObjectURL(await(await raw('/study-assets/'+id)).blob());img.src=thumbs[id]}catch{}}}
 
@@ -208,6 +216,114 @@ const ft=(l,p,t='s',rows=3,ph='')=>`<label>${l}<textarea data-p="${p}" data-t="$
 const fs=(l,p,opts,t='S',r=false)=>{const cur=getP(E,p);return `<label>${l}<select data-p="${p}" data-t="${t}" ${r?'data-r="1"':''}>${opts.map(([v,n])=>`<option value="${esc(v)}" ${String(cur??'')===String(v)?'selected':''}>${esc(n)}</option>`).join('')}</select></label>`};
 const fc=(l,p,r=false)=>`<label class="ck"><input type="checkbox" data-p="${p}" data-t="b" ${getP(E,p)?'checked':''} ${r?'data-r="1"':''}> ${l}</label>`;
 
+
+
+
+// =================== CONSTRUCTEUR D'ENQUÊTE SIMPLE ===================
+const UNITS=[['household','Ménage'],['person','Personne'],['dwelling','Logement'],['enterprise','Entreprise'],['farm','Exploitation'],['facility','Établissement'],['community','Communauté']];
+const UNIT_BY_DOMAIN={entreprises:'enterprise',agriculture:'farm'};
+const EVID=[['none','Sans photo'],['optional','Photo facultative'],['required','Photo obligatoire']];
+const KIND_LBL={number:'Nombre',share:'Oui / Non',scale:'Note sur 5',category:'Choix'};
+let B=null;
+
+function indMap(){const m={};S.catalog.domains.forEach(d=>d.indicators.forEach(i=>m[i.key]={...i,domain:d.key}));return m}
+function kindOf(i){return i.kind==='number'?'number':i.kind==='share'?'yes_no':i.kind==='scale'?'scale':(i.multi?'multi_choice':'single_choice')}
+function newSlot(slots){let n=slots.length+1;const used=new Set(slots.map(x=>x.key));while(used.has('rubrique_'+n))n++;
+  return {key:'rubrique_'+n,label:'Rubrique '+n,help:null,multi:false,allow_none:true,mode:'profile'}}
+function mkQ(ind,sl){const q={key:ind.key,slot:sl.key,text:ind.label,kind:kindOf(ind),indicator:ind.key,required:true,evidence:'none'};
+  if(ind.kind==='category'&&sl.mode==='profile')q.axis=ind.key;return q}
+function builderFrom(def){
+  const slots=(def?.slots||[]).map(x=>({key:x.key,label:x.label,help:x.help||null,multi:!!x.multi,allow_none:x.allow_none!==false,mode:x.mode||'profile'}));
+  const qs={};(def?.questions||[]).forEach(q=>{qs[q.indicator]=q});
+  if(!slots.length)slots.push(newSlot(slots));
+  return {unit:def?.unit||'household',slots,qs,rules:def?.rules||[],domain:null};
+}
+function listFor(){
+  const im=indMap(),dom=S.catalog.domains.find(d=>d.key===B.domain);
+  const list=[...dom.indicators];
+  if(B.domain!=='demographie'&&im.household_persons)list.unshift(im.household_persons);
+  Object.keys(B.qs).forEach(k=>{if(!list.some(i=>i.key===k)&&im[k])list.push(im[k])});
+  return list;
+}
+function builderToDef(){
+  if(!B.slots.length)throw new Error('Ajoutez au moins une rubrique');
+  const questions=[];
+  for(const sl of B.slots){
+    if((sl.label||'').trim().length<2)throw new Error('Donnez un nom à chaque rubrique');
+    const qs=Object.values(B.qs).filter(q=>q.slot===sl.key);
+    if(!qs.length)throw new Error('La rubrique « '+sl.label+' » est vide : cochez au moins une question ou supprimez-la');
+    qs.forEach(q=>{
+      if((q.text||'').trim().length<3)throw new Error('Une question n\'a pas de texte (3 caractères min.)');
+      questions.push({...q,text:q.text.trim(),evidence:q.evidence||'none'});
+    });
+  }
+  const dims=[...new Set(questions.map(q=>q.axis).filter(Boolean))];
+  return {unit:B.unit,
+    slots:B.slots.map(x=>({key:x.key,label:x.label.trim(),help:x.help||null,multi:!!x.multi,allow_none:x.allow_none!==false,mode:x.mode})),
+    questions,rules:B.rules||[],dimensions:dims};
+}
+
+function renderBuilder(){
+  const list=listFor();
+  $('#bd').innerHTML=B.slots.map((sl,si)=>{
+    const n=Object.values(B.qs).filter(q=>q.slot===sl.key).length;
+    const rows=list.map(i=>{
+      const q=B.qs[i.key],mine=q&&q.slot===sl.key,other=q&&q.slot!==sl.key;
+      const where=other?(B.slots.find(x=>x.key===q.slot)?.label||''):'';
+      return `<div class="qrow ${mine?'on':''}">
+        <label class="ck"><input type="checkbox" data-pick="${si}" data-ind="${esc(i.key)}" ${mine?'checked':''} ${other?'disabled':''}><span>${esc(i.label)}${i.sensitive?' 🔒':''}</span></label>
+        ${mine?`<input data-q="${esc(i.key)}" data-k="text" value="${esc(q.text)}" placeholder="Texte de la question">
+          <label class="ck"><input type="checkbox" data-q="${esc(i.key)}" data-k="required" ${q.required!==false?'checked':''}> Obligatoire</label>
+          <select data-q="${esc(i.key)}" data-k="evidence">${EVID.map(([v,l])=>`<option value="${v}" ${(q.evidence||'none')===v?'selected':''}>${l}</option>`).join('')}</select>`
+        :other?`<span class="muted">déjà dans « ${esc(where)} »</span><span></span><span></span>`
+        :`<span class="muted">${KIND_LBL[i.kind]||i.kind}</span><span></span><span></span>`}
+      </div>`}).join('');
+    return `<div class="slot">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="row" style="flex:1;align-items:end">
+          <label class="grow">Nom de la rubrique<input data-sl="${si}" data-k="label" value="${esc(sl.label)}" maxlength="100"></label>
+          <label>Comment répond-on ?<select data-sl="${si}" data-k="mode">
+            <option value="profile" ${sl.mode==='profile'?'selected':''}>Choisir un profil (rapide)</option>
+            <option value="direct" ${sl.mode==='direct'?'selected':''}>Répondre question par question</option></select></label>
+          ${sl.mode==='profile'?`<label class="ck"><input type="checkbox" data-sl="${si}" data-k="multi" ${sl.multi?'checked':''}> Plusieurs profils possibles</label>`:''}
+        </div>
+        <span><button class="b s" data-act="up" data-si="${si}">↑</button> <button class="b s" data-act="down" data-si="${si}">↓</button> <button class="b er" data-act="del-slot" data-si="${si}">✕</button></span>
+      </div>
+      <div class="muted" style="margin:8px 0 4px">${n} question(s) · <a href="#" data-act="all" data-si="${si}">tout sélectionner</a> · <a href="#" data-act="none" data-si="${si}">tout décocher</a></div>
+      ${rows}
+    </div>`}).join('')+`<button class="b s" data-act="add-slot">+ Ajouter une rubrique</button>`;
+}
+
+function wireBuilder(){
+  const bd=$('#bd');
+  bd.addEventListener('input',e=>{const el=e.target,d=el.dataset;
+    if(d.sl!=null&&d.k==='label')B.slots[+d.sl].label=el.value;
+    else if(d.q&&d.k==='text'&&B.qs[d.q])B.qs[d.q].text=el.value});
+  bd.addEventListener('change',e=>{const el=e.target,d=el.dataset,im=indMap();
+    if(d.pick!=null){const sl=B.slots[+d.pick],ind=im[d.ind];
+      if(el.checked)B.qs[ind.key]=B.qs[ind.key]?{...B.qs[ind.key],slot:sl.key}:mkQ(ind,sl);else delete B.qs[ind.key];
+      renderBuilder()}
+    else if(d.sl!=null&&d.k==='mode'){const sl=B.slots[+d.sl];sl.mode=el.value;
+      if(sl.mode==='profile')Object.values(B.qs).forEach(q=>{if(q.slot===sl.key&&im[q.indicator]?.kind==='category'&&!q.axis)q.axis=q.indicator});
+      renderBuilder()}
+    else if(d.sl!=null&&d.k==='multi')B.slots[+d.sl].multi=el.checked;
+    else if(d.q&&d.k==='required'&&B.qs[d.q])B.qs[d.q].required=el.checked;
+    else if(d.q&&d.k==='evidence'&&B.qs[d.q])B.qs[d.q].evidence=el.value});
+  bd.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;e.preventDefault();
+    const d=b.dataset,si=+d.si,im=indMap();
+    switch(d.act){
+      case'add-slot':B.slots.push(newSlot(B.slots));break;
+      case'del-slot':{const sl=B.slots[si];const n=Object.values(B.qs).filter(q=>q.slot===sl.key).length;
+        if(n&&!confirm('Supprimer cette rubrique et ses '+n+' question(s) ?'))return;
+        Object.keys(B.qs).forEach(k=>{if(B.qs[k].slot===sl.key)delete B.qs[k]});B.slots.splice(si,1);
+        if(!B.slots.length)B.slots.push(newSlot(B.slots));break}
+      case'up':if(si>0)[B.slots[si-1],B.slots[si]]=[B.slots[si],B.slots[si-1]];break;
+      case'down':if(si<B.slots.length-1)[B.slots[si+1],B.slots[si]]=[B.slots[si],B.slots[si+1]];break;
+      case'all':{const sl=B.slots[si];listFor().forEach(i=>{if(!B.qs[i.key])B.qs[i.key]=mkQ(i,sl)});break}
+      case'none':{const sl=B.slots[si];Object.keys(B.qs).forEach(k=>{if(B.qs[k].slot===sl.key)delete B.qs[k]});break}
+    }
+    renderBuilder()});
+}
 // ---------- coque + onglets
 function renderEditor(){norm();
  const tabs=[['gen','Général'],['def','Questionnaire'],['tg','Ciblage'],['rw','Récompense'],['pv','Confidentialité']];

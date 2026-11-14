@@ -35,7 +35,7 @@ def build_pdf(rows: list[dict], params: dict, narrative: dict | None) -> bytes:
 
     styles = getSampleStyleSheet()
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, title="Rapport SunuSound")
+    doc = SimpleDocTemplate(buf, pagesize=A4, title="Rapport Data Map")
     story = [Paragraph("Rapport SunuSound — cartographie sonore indicative", styles["Title"]),
              Paragraph(f"Période : {params['period']} — plage : {params['day_part']} — "
                        f"indicatives incluses : {'oui' if params['include_indicative'] else 'non'}", styles["Normal"]),
