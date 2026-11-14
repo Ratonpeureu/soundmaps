@@ -1,302 +1,63 @@
-<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SunuSound · Administration</title>
-<style>
-  :root{--bg:#f4f7f8;--card:#fff;--tx:#0f1b22;--mu:#64748b;--bd:#e2e8f0;--pr:#0e9f9a;--ok:#16a34a;--wa:#d97706;--er:#dc2626;--pe:#64748b}
-  @media (prefers-color-scheme:dark){:root{--bg:#0b1116;--card:#151d24;--tx:#e6edf2;--mu:#8da0ad;--bd:#26323b}}
-  *{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
-  header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
-  header h1{font-size:16px;margin:0;flex:1}header small{color:var(--mu)}
-  nav{display:flex;gap:6px;padding:12px 20px 0}nav button{border:0;background:none;padding:8px 14px;border-radius:10px 10px 0 0;cursor:pointer;color:var(--mu);font-weight:600}
-  nav button.on{background:var(--card);color:var(--pr)}
-  nav a{border:0;background:none;padding:8px 14px;border-radius:10px 10px 0 0;cursor:pointer;color:var(--mu);font-weight:600;text-decoration:none;font:inherit}
-  main{padding:0 20px 80px}.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-top:12px}
-  input,select,button{font:inherit;color:inherit}input,select{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px}
-  button.b{border:0;border-radius:9px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff}
-  button.b.s{background:var(--bd);color:var(--tx)}button.b.ok{background:var(--ok)}button.b.wa{background:var(--wa)}button.b.er{background:var(--er)}button.b:disabled{opacity:.5;cursor:default}
-  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.row label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mu)}
-  .chk{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.chk label{flex-direction:row;align-items:center;gap:5px;color:var(--tx);font-size:13px}
-  table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
-  th{font-size:12px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}tr.r{cursor:pointer}tr.r:hover td{background:rgba(14,159,154,.06)}
-  .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700;margin:1px 3px 1px 0}
-  .validated{background:#16a34a22;color:var(--ok)}.indicative{background:#d9770622;color:var(--wa)}.rejected{background:#dc262622;color:var(--er)}.pending{background:#64748b22;color:var(--pe)}.info{background:var(--bd);color:var(--mu)}
-  .bar{height:6px;border-radius:4px;background:var(--bd);overflow:hidden;min-width:60px}.bar i{display:block;height:100%;background:var(--pr)}
-  .det td{background:var(--bg)}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}.kv{font-size:12px;color:var(--mu)}.kv b{display:block;color:var(--tx);font-size:14px}
-  .bulk{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--bd);padding:10px 20px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:6}
-  #login{max-width:360px;margin:12vh auto;padding:0 16px}#login .card{display:flex;flex-direction:column;gap:10px}
-  .toast{position:fixed;right:16px;top:16px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:10px;z-index:20;max-width:340px}
-  .day{display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--bd)}.day i{display:block;height:100%}
-  [hidden]{display:none!important}
-</style>
-</head>
-<body>
-
-<div id="login">
-  <div class="card">
-    <h2 style="margin:0">SunuSound · Administration</h2>
-    <label class="kv">URL de l'API<input id="l-api" style="width:100%"></label>
-    <input id="l-email" type="email" placeholder="E-mail" autocomplete="username">
-    <input id="l-pass" type="password" placeholder="Mot de passe" autocomplete="current-password">
-    <button class="b" id="l-go">Se connecter</button>
-    <div id="l-err" style="color:var(--er)"></div>
-  </div>
-</div>
-
-<div id="app" hidden>
-  <header><h1>SunuSound · Administration</h1><small id="who"></small><button class="b s" id="logout">Déconnexion</button></header>
-  <nav><button data-tab="val" class="on">Validation</button><button data-tab="stats">Statistiques</button><a href="surveys.html">Enquêtes</a><a href="invitations.html">Invitations</a><a href="studies.html">Études</a></nav>
-  <main>
-    <section id="tab-val">
-      <div class="card">
-        <div class="row">
-          <div class="chk" id="f-status">
-            <label><input type="checkbox" value="pending" checked> En évaluation</label>
-            <label><input type="checkbox" value="indicative" checked> Indicative</label>
-            <label><input type="checkbox" value="rejected" checked> Rejetée</label>
-            <label><input type="checkbox" value="validated"> Validée</label>
-          </div>
-          <label>Score min<input id="f-smin" type="number" step="0.05" min="0" max="1" style="width:80px"></label>
-          <label>Score max<input id="f-smax" type="number" step="0.05" min="0" max="1" style="width:80px"></label>
-          <label>Téléphone<select id="f-cal"><option value="">Tous</option><option value="calibrated">Calibré</option><option value="uncalibrated">Non calibré</option></select></label>
-          <label>Décision<select id="f-eval"><option value="">Toutes</option><option value="auto">Automatique</option><option value="admin">Admin</option></select></label>
-          <label>Raison<select id="f-reason"><option value="">Toutes</option></select></label>
-          <label>Cellule H3<input id="f-h3" style="width:150px"></label>
-          <label>Du<input id="f-from" type="date"></label>
-          <label>Au<input id="f-to" type="date"></label>
-          <label>Tri<select id="f-sort"><option value="recent">Plus récentes</option><option value="score_asc">Score croissant</option><option value="score_desc">Score décroissant</option><option value="laeq_desc">Plus bruyantes</option></select></label>
-          <label>Par page<select id="f-size"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label>
-          <button class="b" id="f-go">Filtrer</button>
-        </div>
-      </div>
-      <div class="card" style="padding:0;overflow:auto">
-        <table>
-          <thead><tr><th><input type="checkbox" id="all"></th><th>Date</th><th>Cellule</th><th>LAeq</th><th>Score</th><th>Statut</th><th>Raisons</th><th>Source</th><th id="th-act">Action</th></tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </div>
-      <div class="row" style="margin-top:10px;justify-content:space-between">
-        <span id="count" class="kv"></span>
-        <span><button class="b s" id="prev">← Précédent</button> <button class="b s" id="next">Suivant →</button></span>
-      </div>
-    </section>
-
-    <section id="tab-stats" hidden>
-      <div class="card"><div class="row" style="justify-content:space-between"><b>Qualité des mesures</b>
-        <label>Jours<select id="s-days"><option>7</option><option selected>14</option><option>30</option><option>90</option></select></label></div>
-        <div id="s-totals" style="margin-top:8px"></div><div id="s-days-list" style="margin-top:10px"></div></div>
-      <div class="card"><b>Raisons les plus fréquentes</b><div id="s-reasons" style="margin-top:8px"></div></div>
-      <div class="card"><b>Quota et missions</b><div id="s-quota" style="margin-top:8px" class="kv"></div></div>
-      <div class="card" style="padding:0;overflow:auto"><div style="padding:14px"><b>Utilisateurs les plus actifs</b></div>
-        <table><thead><tr><th>Pseudonyme</th><th>Score</th><th>Activité 14 j</th><th>Fiabilité</th><th>Missions</th><th>Acceptation</th><th>Charge</th></tr></thead><tbody id="s-rank"></tbody></table></div>
-    </section>
-  </main>
-
-  <div class="bulk" id="bulk" hidden>
-    <b id="b-count"></b>
-    <select id="b-status"><option value="validated">Valider</option><option value="indicative">Indicative</option><option value="rejected">Rejeter</option></select>
-    <input id="b-reason" placeholder="Motif (3 caractères min.)" style="flex:1;min-width:200px">
-    <button class="b" id="b-apply">Appliquer</button>
-    <button class="b s" id="b-release" title="Remet la mesure en évaluation automatique">Remettre en automatique</button>
-    <button class="b s" id="b-clear">Désélectionner</button>
-  </div>
-</div>
-
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SunuSound · Mesures</title><link rel="stylesheet" href="admin.css"></head><body>
+<script src="admin.js"></script>
 <script>
-const $ = (s, r = document) => r.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const LABELS = {level_out_of_range:'Niveau hors plage plausible',inconsistent_levels:'Niveaux Lmin / LAeq / Lmax incohérents',timestamp_in_future:'Horodatage dans le futur',measurement_too_old:'Mesure trop ancienne',gps_accuracy_too_low:'Précision GPS insuffisante',capture_too_short:'Capture trop courte',audio_saturation:'Saturation du micro',moved_during_capture:'Déplacement pendant la mesure',uncalibrated_device:'Téléphone non calibré',neighbor_outlier:'Écart avec les zones voisines',insufficient_neighbors:'Peu de voisines pour comparer',low_score:'Score global trop bas',admin_override:"Décision d'un administrateur"};
-const SUBS = {gps:'GPS',duration:'Durée',saturation:'Saturation',movement:'Mouvement',calibration:'Calibration',neighbor:'Voisines'};
-const STATUS = {pending:'En évaluation',indicative:'Indicative',rejected:'Rejetée',validated:'Validée'};
-const S = {base: localStorage.getItem('ss_api') || 'https://soundmaps.rhmanager.site/api/v1', access: sessionStorage.getItem('ss_at'), refresh: sessionStorage.getItem('ss_rt'),
-  me: null, offset: 0, total: 0, items: [], sel: new Set(), open: new Set()};
-let refreshing = null;
-
-function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 3500); }
-function saveTokens(a, r){ S.access = a; S.refresh = r; sessionStorage.setItem('ss_at', a); sessionStorage.setItem('ss_rt', r); }
-function logout(){ S.access = S.refresh = null; sessionStorage.clear(); $('#app').hidden = true; $('#login').hidden = false; }
-
-async function refreshTokens(){
-  if (!S.refresh) return false;
-  refreshing ||= fetch(S.base + '/auth/refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({refresh_token: S.refresh})})
-    .then(async r => { if (!r.ok) return false; const d = await r.json(); saveTokens(d.access_token, d.refresh_token); return true; })
-    .catch(() => false).finally(() => { refreshing = null; });
-  return refreshing;
-}
-
-async function api(path, {method = 'GET', body, query} = {}, retry = true){
-  const url = new URL(S.base + path);
-  for (const [k, v] of Object.entries(query || {})) {
-    if (Array.isArray(v)) v.forEach(x => url.searchParams.append(k, x));
-    else if (v !== '' && v != null) url.searchParams.set(k, v);
-  }
-  let r;
-  try {
-    r = await fetch(url, {method, headers: {...(body ? {'Content-Type':'application/json'} : {}), ...(S.access ? {Authorization:'Bearer ' + S.access} : {})}, body: body ? JSON.stringify(body) : undefined});
-  } catch { throw new Error('Serveur injoignable (réseau ou CORS)'); }
-  if (r.status === 401 && retry && await refreshTokens()) return api(path, {method, body, query}, false);
-  if (r.status === 401) { logout(); throw new Error('Session expirée'); }
-  const data = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(typeof data?.detail === 'string' ? data.detail : 'Erreur ' + r.status);
-  return data;
-}
-
-// ------------------------------------------------------------------ connexion
-$('#l-api').value = S.base;
-$('#l-go').onclick = async () => {
-  $('#l-err').textContent = '';
-  S.base = $('#l-api').value.trim().replace(/\/+$/, ''); localStorage.setItem('ss_api', S.base);
-  try {
-    const r = await fetch(S.base + '/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email: $('#l-email').value.trim(), password: $('#l-pass').value})});
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Erreur ' + r.status);
-    saveTokens(d.access_token, d.refresh_token);
-    await start();
-  } catch (e) { $('#l-err').textContent = e.message === 'invalid_credentials' ? 'Identifiants incorrects.' : e.message; }
-};
-$('#l-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#l-go').click(); });
-$('#logout').onclick = async () => { try { await api('/auth/logout', {method:'POST', body:{refresh_token: S.refresh}}); } catch {} logout(); };
-
-async function start(){
-  S.me = await api('/users/me');
-  if (!['tenant_admin', 'analyst'].includes(S.me.role)) { logout(); throw new Error("Ce compte n'a pas accès à l'administration."); }
-  $('#who').textContent = `${S.me.pseudonym} · ${S.me.role === 'tenant_admin' ? 'Administrateur' : 'Analyste'}`;
-  $('#login').hidden = true; $('#app').hidden = false;
-  $('#th-act').hidden = !isAdmin();
-  await Promise.all([loadReasons(), loadQueue()]);
-}
-const isAdmin = () => S.me?.role === 'tenant_admin';
-
-// ------------------------------------------------------------------ onglets
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
-  $('#tab-val').hidden = b.dataset.tab !== 'val'; $('#tab-stats').hidden = b.dataset.tab !== 'stats';
-  if (b.dataset.tab === 'stats') loadStats();
-  updateBulk();
-});
-
-// ------------------------------------------------------------------ file de validation
-async function loadReasons(){
-  try {
-    const s = await api('/validation/stats', {query:{days: 30}});
-    const sel = $('#f-reason');
-    s.top_reasons.forEach(r => sel.append(new Option(`${LABELS[r.code] || r.code} (${r.n})`, r.code)));
-  } catch {}
-}
-
-function filters(){
-  return {status: [...document.querySelectorAll('#f-status input:checked')].map(i => i.value),
-    min_score: $('#f-smin').value, max_score: $('#f-smax').value, calibration: $('#f-cal').value, evaluator: $('#f-eval').value,
-    reason: $('#f-reason').value, h3_index: $('#f-h3').value.trim(), date_from: $('#f-from').value, date_to: $('#f-to').value,
-    sort: $('#f-sort').value, limit: $('#f-size').value, offset: S.offset};
-}
-
-async function loadQueue(){
-  try {
-    const d = await api('/validation/queue', {query: filters()});
-    S.items = d.items; S.total = d.total; S.sel.clear(); S.open.clear();
-    renderRows();
-  } catch (e) { toast(e.message); }
-}
-
-function chip(st){ return `<span class="chip ${esc(st)}">${esc(STATUS[st] || st)}</span>`; }
-function renderRows(){
-  const body = $('#rows'); const size = +$('#f-size').value;
-  body.innerHTML = '';
-  S.items.forEach(m => {
-    const tr = document.createElement('tr'); tr.className = 'r'; tr.dataset.id = m.id;
-    const reasons = (m.reasons || []).filter(r => r.code !== 'insufficient_neighbors').map(r => `<span class="chip info" title="${esc(r.reason || '')}">${esc(LABELS[r.code] || r.code)}</span>`).join('');
-    const score = m.quality_score == null ? '–' : `${Math.round(m.quality_score * 100)} %<div class="bar"><i style="width:${Math.round(m.quality_score * 100)}%"></i></div>`;
-    tr.innerHTML = `<td><input type="checkbox" class="sel" ${S.sel.has(m.id) ? 'checked' : ''}></td>
-      <td>${esc(new Date(m.measured_at).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}))}</td>
-      <td title="${esc(m.h3_index)}">${esc(m.h3_index.slice(-7))}</td><td><b>${esc(m.laeq_db)}</b> dB(A)<div class="kv">max ${esc(m.lmax_db)}</div></td>
-      <td>${score}</td><td>${chip(m.quality_status)}</td><td>${reasons || '<span class="kv">—</span>'}</td>
-      <td class="kv">${esc(m.evaluator === 'admin' ? 'Admin' : m.evaluator === 'auto' ? 'Auto' : '—')}</td>
-      ${isAdmin() ? `<td style="white-space:nowrap"><button class="b ok" data-a="validated" title="Valider">✓</button> <button class="b wa" data-a="indicative" title="Indicative">~</button> <button class="b er" data-a="rejected" title="Rejeter">✗</button></td>` : ''}`;
-    body.append(tr);
-    const det = document.createElement('tr'); det.className = 'det'; det.dataset.det = m.id; det.hidden = !S.open.has(m.id);
-    det.innerHTML = `<td colspan="${isAdmin() ? 9 : 8}">${detailHtml(m)}</td>`;
-    body.append(det);
-  });
-  if (!S.items.length) body.innerHTML = '<tr><td colspan="9" class="kv" style="padding:24px">Aucune mesure pour ces filtres.</td></tr>';
-  $('#count').textContent = `${S.total} mesure(s) · ${S.offset + 1}–${Math.min(S.offset + size, S.total)}`;
-  $('#prev').disabled = S.offset === 0; $('#next').disabled = S.offset + size >= S.total;
-  $('#all').checked = false; updateBulk();
-}
-
-function detailHtml(m){
-  const subs = Object.entries(m.sub_scores || {}).map(([k, v]) => `<div class="kv">${esc(SUBS[k] || k)}<b>${Math.round(v * 100)} %</b><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`).join('');
-  const rs = (m.reasons || []).map(r => `<div class="kv"><b>${esc(LABELS[r.code] || r.code)}</b>${esc(r.severity || '')}${r.reason ? ' · ' + esc(r.reason) : ''}${r.z != null ? ' · z=' + esc(r.z) : ''}${r.value != null ? ' · valeur ' + esc(r.value) : ''}${r.ratio != null ? ' · ratio ' + esc(r.ratio) : ''}</div>`).join('');
-  const tech = [['Durée', `${m.effective_duration_seconds}/${m.duration_seconds} s`], ['Précision GPS', `${Math.round(m.gps_accuracy_m)} m`], ['Saturation', `${(m.saturation_ratio * 100).toFixed(1)} %`],
-    ['Déplacement', `${Math.round(m.moved_distance_m)} m`], ['Lmin', `${m.lmin_db} dB`], ['Plage', m.day_part], ['Contexte', m.noise_context || '—'], ['Échantillonnage', m.sample_rate_hz ? m.sample_rate_hz + ' Hz' : '—'],
-    ['Téléphone', m.calibration_status === 'calibrated' ? 'Calibré' : 'Non calibré'], ['Contributeur', m.contributor_token]].map(([k, v]) => `<div class="kv">${esc(k)}<b>${esc(v)}</b></div>`).join('');
-  return `<div class="grid">${subs}</div><div class="grid" style="margin-top:10px">${tech}</div><div style="margin-top:10px">${rs}</div>`;
-}
-
-$('#rows').addEventListener('click', async e => {
-  const tr = e.target.closest('tr.r'); if (!tr) return;
-  const id = tr.dataset.id;
-  if (e.target.classList.contains('sel')) { e.target.checked ? S.sel.add(id) : S.sel.delete(id); updateBulk(); return; }
-  const a = e.target.closest('button[data-a]');
-  if (a) {
-    const reason = prompt('Motif (3 caractères min.)', 'Validation manuelle'); if (!reason || reason.trim().length < 3) return;
-    await apply([id], a.dataset.a, reason.trim()); return;
-  }
-  const det = $(`tr[data-det="${CSS.escape(id)}"]`); det.hidden = !det.hidden; det.hidden ? S.open.delete(id) : S.open.add(id);
-});
-$('#all').onchange = e => { S.items.forEach(m => e.target.checked ? S.sel.add(m.id) : S.sel.delete(m.id)); document.querySelectorAll('.sel').forEach(c => c.checked = e.target.checked); updateBulk(); };
-
-function updateBulk(){
-  const show = isAdmin() && !$('#tab-val').hidden && S.sel.size > 0;
-  $('#bulk').hidden = !show; $('#b-count').textContent = `${S.sel.size} sélectionnée(s)`;
-}
-async function apply(ids, status, reason){
-  try {
-    const r = await api('/validation/bulk', {method:'POST', body:{ids, status, reason}});
-    toast(`${r.updated} mesure(s) mise(s) à jour${r.skipped ? ` · ${r.skipped} introuvable(s)` : ''}`);
-    await loadQueue();
-  } catch (e) { toast(e.message); }
-}
-$('#b-apply').onclick = () => {
-  const reason = $('#b-reason').value.trim();
-  if (reason.length < 3) { toast('Indique un motif (3 caractères min.)'); return; }
-  if (S.sel.size > 200) { toast('200 mesures maximum par action'); return; }
-  apply([...S.sel], $('#b-status').value, reason);
-};
-$('#b-release').onclick = async () => {
-  try { const r = await api('/validation/release', {method:'POST', body:{ids:[...S.sel]}}); toast(`${r.released} mesure(s) remise(s) en évaluation automatique`); await loadQueue(); }
-  catch (e) { toast(e.message); }
-};
-$('#b-clear').onclick = () => { S.sel.clear(); document.querySelectorAll('.sel').forEach(c => c.checked = false); updateBulk(); };
-$('#f-go').onclick = () => { S.offset = 0; loadQueue(); };
-$('#prev').onclick = () => { S.offset = Math.max(0, S.offset - +$('#f-size').value); loadQueue(); };
-$('#next').onclick = () => { S.offset += +$('#f-size').value; loadQueue(); };
-
-// ------------------------------------------------------------------ statistiques
-async function loadStats(){
-  try {
-    const s = await api('/validation/stats', {query:{days: $('#s-days').value}});
-    const colors = {validated:'#16a34a', indicative:'#d97706', rejected:'#dc2626', pending:'#64748b'};
-    $('#s-totals').innerHTML = Object.entries(s.totals).map(([k, v]) => `<span class="chip ${k}">${esc(STATUS[k])} ${v}</span>`).join('') +
-      `<span class="chip info">Décisions admin : ${s.admin_overrides}</span>` + (s.pending_stuck ? `<span class="chip rejected">${s.pending_stuck} en attente depuis > 5 min</span>` : '');
-    $('#s-days-list').innerHTML = s.days.map(d => { const t = Object.values({v:d.validated, i:d.indicative, r:d.rejected, p:d.pending}).reduce((a, b) => a + b, 0) || 1;
-      return `<div class="row" style="align-items:center;margin:4px 0"><span class="kv" style="width:84px">${esc(d.date)}</span><div class="day" style="flex:1">${['validated','indicative','rejected','pending'].map(k => `<i style="width:${d[k] / t * 100}%;background:${colors[k]}" title="${esc(STATUS[k])} ${d[k]}"></i>`).join('')}</div><span class="kv" style="width:40px;text-align:right">${t}</span></div>`; }).join('');
-    $('#s-reasons').innerHTML = s.top_reasons.map(r => `<div class="row" style="align-items:center;margin:4px 0"><span style="width:300px">${esc(LABELS[r.code] || r.code)}</span><span class="chip info">${r.n}</span></div>`).join('') || '<span class="kv">Aucune.</span>';
-  } catch (e) { toast(e.message); }
-  try {
-    const q = await api('/quota/overview');
-    $('#s-quota').innerHTML = `Utilisateurs avec solde : <b>${q.users}</b> · solde moyen : <b>${q.avg_balance}</b> · objectif moyen/jour : <b>${q.avg_daily_target}</b> · besoin global : <b>${Math.round(q.context.need_global * 100)} %</b> · contributeurs actifs (7 j) : <b>${q.context.supply}</b> · déficit de mesures : <b>${Math.round(q.context.deficit)}</b>`;
-  } catch (e) { $('#s-quota').textContent = e.message; }
-  try {
-    const r = await api('/missions/ranking/active');
-    $('#s-rank').innerHTML = r.map(u => `<tr><td>${esc(u.pseudonym)}</td><td>${Math.round(u.score * 100)} %</td><td>${esc(u.activity_14d)}</td><td>${Math.round(u.reliability * 100)} %</td><td>${Math.round(u.completion * 100)} %</td><td>${Math.round(u.acceptance * 100)} %</td><td>${esc(u.load)}</td></tr>`).join('') || '<tr><td colspan="7" class="kv">Aucun utilisateur éligible.</td></tr>';
-  } catch (e) { $('#s-rank').innerHTML = `<tr><td colspan="7" class="kv">${esc(e.message)}</td></tr>`; }
-}
-$('#s-days').onchange = loadStats;
-
-if (S.access) start().catch(() => logout());
-</script>
-</body>
-</html>
+boot({page:'mesures',roles:['tenant_admin','analyst'],ready:init});
+const LAB={level_out_of_range:'Niveau hors plage plausible',inconsistent_levels:'Niveaux Lmin / LAeq / Lmax incohérents',timestamp_in_future:'Date dans le futur',measurement_too_old:'Mesure trop ancienne',gps_accuracy_too_low:'GPS trop imprécis',capture_too_short:'Capture trop courte',audio_saturation:'Micro saturé',moved_during_capture:'Déplacement pendant la mesure',uncalibrated_device:'Téléphone non calibré',neighbor_outlier:'Écart avec les zones voisines',insufficient_neighbors:'Peu de voisines pour comparer',low_score:'Score global trop bas',admin_override:"Décision d'un administrateur",peer_confirmed:'Confirmée par les analyseurs',peer_rejected:'Rejetée par les analyseurs',peer_adjusted_up:'Corrigée à la hausse (analyseurs)',peer_adjusted_down:'Corrigée à la baisse (analyseurs)'};
+const SUBL={gps:'GPS',duration:'Durée',saturation:'Saturation',movement:'Immobilité',calibration:'Calibration',neighbor:'Voisines'};
+const STL={pending:'En évaluation',indicative:'Indicative',rejected:'Rejetée',validated:'Validée'};
+const Q={off:0,total:0,items:[],sel:new Set(),open:new Set(),st:['pending','indicative','rejected']};
+const isAdmin=()=>A.me.role==='tenant_admin';
+function init(){
+ $('#main').innerHTML=`<h2>Validation des mesures</h2><div class="sub">Contrôlez la fiabilité des mesures envoyées par les contributeurs.</div>
+ <div class="tabs"><button class="on" data-t="val">À vérifier</button><button data-t="stats">Statistiques</button></div>
+ <section id="t-val"><div class="card"><div class="row"><div class="pills" id="pl">${Object.entries(STL).map(([k,v])=>`<button class="pill ${Q.st.includes(k)?'on':''}" data-st="${k}">${v}</button>`).join('')}</div><div class="sp"></div>
+  <label class="f">Trier par<select id="f-sort"><option value="recent">Plus récentes</option><option value="score_asc">Score croissant</option><option value="score_desc">Score décroissant</option><option value="laeq_desc">Plus bruyantes</option></select></label>
+  <label class="f">Par page<select id="f-size"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label><button class="btn" id="f-go">Appliquer</button></div>
+  <details style="margin-top:8px"><summary>Plus de filtres</summary><div class="g4" style="margin-top:8px">
+  <label class="f">Score min (0-1)<input id="f-smin" type="number" step="0.05" min="0" max="1"></label><label class="f">Score max (0-1)<input id="f-smax" type="number" step="0.05" min="0" max="1"></label>
+  <label class="f">Téléphone<select id="f-cal"><option value="">Tous</option><option value="calibrated">Calibré</option><option value="uncalibrated">Non calibré</option></select></label>
+  <label class="f">Décision<select id="f-eval"><option value="">Toutes</option><option value="auto">Automatique</option><option value="admin">Administrateur</option></select></label>
+  <label class="f">Raison<select id="f-reason"><option value="">Toutes</option></select></label><label class="f">Zone (code H3)<input id="f-h3"></label>
+  <label class="f">Du<input id="f-from" type="date"></label><label class="f">Au<input id="f-to" type="date"></label></div></details></div>
+ <div class="card tw" style="padding:0"><table><thead><tr><th><input type="checkbox" id="all"></th><th>Date</th><th>Zone</th><th>Niveau</th><th>Fiabilité</th><th>Statut</th><th>Raisons</th><th>Décision</th><th class="adm"></th></tr></thead><tbody id="rows"></tbody></table></div>
+ <div class="row" style="margin-top:10px"><span id="count" class="sub sp"></span><button class="btn sec sm" id="prev">← Précédent</button><button class="btn sec sm" id="next">Suivant →</button></div></section>
+ <section id="t-stats" hidden></section>
+ <div class="bulk" id="bulk" hidden><b id="b-count"></b><select id="b-status" style="width:auto"><option value="validated">Valider</option><option value="indicative">Marquer indicative</option><option value="rejected">Rejeter</option></select><input id="b-reason" placeholder="Motif (3 caractères min.)" style="flex:1;min-width:200px"><button class="btn" id="b-apply">Appliquer</button><button class="btn sec" id="b-release" title="Remet les mesures en évaluation automatique">Remettre en automatique</button><button class="btn gh" id="b-clear">Désélectionner</button></div>`;
+ if(!isAdmin())$$('.adm').forEach(x=>x.remove());
+ $$('.tabs button').forEach(b=>b.onclick=()=>{$$('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$('#t-val').hidden=b.dataset.t!=='val';$('#t-stats').hidden=b.dataset.t!=='stats';if(b.dataset.t==='stats')loadStats();bulkUi()});
+ $('#pl').onclick=e=>{const k=e.target.dataset.st;if(!k)return;Q.st=Q.st.includes(k)?Q.st.filter(x=>x!==k):[...Q.st,k];e.target.classList.toggle('on');Q.off=0;load()};
+ $('#f-go').onclick=()=>{Q.off=0;load()};$('#prev').onclick=()=>{Q.off=Math.max(0,Q.off-+$('#f-size').value);load()};$('#next').onclick=()=>{Q.off+=+$('#f-size').value;load()};
+ $('#all').onchange=e=>{Q.items.forEach(m=>e.target.checked?Q.sel.add(m.id):Q.sel.delete(m.id));$$('.sel').forEach(c=>c.checked=e.target.checked);bulkUi()};
+ $('#rows').addEventListener('click',onRow);
+ $('#b-apply').onclick=()=>{const r=$('#b-reason').value.trim();if(r.length<3)return toast('Indiquez un motif (3 caractères min.)',1);if(Q.sel.size>200)return toast('200 mesures maximum par action',1);apply([...Q.sel],$('#b-status').value,r)};
+ $('#b-release').onclick=async()=>{try{const r=await api('/validation/release',{method:'POST',body:{ids:[...Q.sel]}});toast(r.released+' mesure(s) remise(s) en évaluation automatique');load()}catch(e){toast(e.message,1)}};
+ $('#b-clear').onclick=()=>{Q.sel.clear();$$('.sel').forEach(c=>c.checked=false);bulkUi()};
+ $('#s-days')&&0;loadReasons();load()}
+async function loadReasons(){try{const s=await api('/validation/stats',{query:{days:30}});s.top_reasons.forEach(r=>$('#f-reason').append(new Option(`${LAB[r.code]||r.code} (${r.n})`,r.code)))}catch{}}
+const filt=()=>({status:Q.st,min_score:$('#f-smin').value,max_score:$('#f-smax').value,calibration:$('#f-cal').value,evaluator:$('#f-eval').value,reason:$('#f-reason').value,h3_index:$('#f-h3').value.trim(),date_from:$('#f-from').value,date_to:$('#f-to').value,sort:$('#f-sort').value,limit:$('#f-size').value,offset:Q.off});
+async function load(){try{const d=await api('/validation/queue',{query:filt()});Q.items=d.items;Q.total=d.total;Q.sel.clear();Q.open.clear();rows()}catch(e){toast(e.message,1)}}
+const chip=s=>`<span class="chip ${s}">${STL[s]||s}</span>`;
+function rows(){const size=+$('#f-size').value,b=$('#rows'),ad=isAdmin();
+ b.innerHTML=Q.items.map(m=>{const rs=(m.reasons||[]).filter(r=>r.code!=='insufficient_neighbors').map(r=>`<span class="chip" title="${esc(r.reason||'')}">${esc(LAB[r.code]||r.code)}</span>`).join('')||'<span class="sub">—</span>';
+  const sc=m.quality_score==null?'–':`${Math.round(m.quality_score*100)} %<div class="bt"><i style="width:${m.quality_score*100}%;background:var(--pr)"></i></div>`;
+  const subs=Object.entries(m.sub_scores||{}).map(([k,v])=>`<div class="sub">${SUBL[k]||k}<b style="display:block;color:var(--tx)">${Math.round(v*100)} %</b></div>`).join('');
+  const tech=[['Durée',`${m.effective_duration_seconds}/${m.duration_seconds} s`],['Précision GPS',Math.round(m.gps_accuracy_m)+' m'],['Saturation',(m.saturation_ratio*100).toFixed(1)+' %'],['Déplacement',Math.round(m.moved_distance_m)+' m'],['Lmin',m.lmin_db+' dB'],['Plage',m.day_part],['Contexte',m.noise_context||'—'],['Téléphone',m.calibration_status==='calibrated'?'Calibré':'Non calibré'],['Contributeur',m.contributor_token]].map(([k,v])=>`<div class="sub">${k}<b style="display:block;color:var(--tx)">${esc(v)}</b></div>`).join('');
+  return `<tr class="r" data-id="${m.id}"><td><input type="checkbox" class="sel" ${Q.sel.has(m.id)?'checked':''}></td><td>${fd(m.measured_at)}</td><td title="${esc(m.h3_index)}">…${esc(m.h3_index.slice(-7))}</td><td><b>${m.laeq_db}</b> dB(A)<div class="sub">max ${m.lmax_db}</div></td><td style="min-width:90px">${sc}</td><td>${chip(m.quality_status)}</td><td>${rs}</td><td class="sub">${m.evaluator==='admin'?'Admin':m.evaluator==='peer'?'Analyseurs':'Auto'}</td>${ad?`<td style="white-space:nowrap"><button class="btn ok sm" data-a="validated" title="Valider">✓</button> <button class="btn wa sm" data-a="indicative" title="Indicative">~</button> <button class="btn er sm" data-a="rejected" title="Rejeter">✗</button></td>`:''}</tr>
+  <tr data-det="${m.id}" hidden><td colspan="9" style="background:var(--bg)"><div class="g4">${subs}${tech}</div><div style="margin-top:8px">${(m.reasons||[]).map(r=>`<div class="sub"><b style="color:var(--tx)">${esc(LAB[r.code]||r.code)}</b> ${esc(r.reason||'')}${r.z!=null?' · écart '+r.z:''}</div>`).join('')}</div></td></tr>`}).join('')||`<tr><td colspan="9" class="empty">Aucune mesure pour ces filtres.</td></tr>`;
+ $('#count').textContent=`${Q.total} mesure(s) · ${Math.min(Q.off+1,Q.total)}–${Math.min(Q.off+size,Q.total)}`;$('#prev').disabled=Q.off===0;$('#next').disabled=Q.off+size>=Q.total;$('#all').checked=false;bulkUi()}
+function onRow(e){const tr=e.target.closest('tr.r');if(!tr)return;const id=tr.dataset.id;
+ if(e.target.classList.contains('sel')){e.target.checked?Q.sel.add(id):Q.sel.delete(id);bulkUi();return}
+ const a=e.target.closest('button[data-a]');if(a){const r=prompt('Motif de la décision (3 caractères min.)','Validation manuelle');if(r&&r.trim().length>=3)apply([id],a.dataset.a,r.trim());return}
+ const d=$(`tr[data-det="${CSS.escape(id)}"]`);d.hidden=!d.hidden}
+function bulkUi(){$('#bulk').hidden=!(isAdmin()&&!$('#t-val').hidden&&Q.sel.size>0);$('#b-count').textContent=Q.sel.size+' sélectionnée(s)'}
+async function apply(ids,status,reason){try{const r=await api('/validation/bulk',{method:'POST',body:{ids,status,reason}});toast(r.updated+' mesure(s) mise(s) à jour');load()}catch(e){toast(e.message,1)}}
+async function loadStats(){const el=$('#t-stats');el.innerHTML=`<div class="row" style="margin-top:14px"><label class="f">Période<select id="s-days"><option value="7">7 jours</option><option value="14" selected>14 jours</option><option value="30">30 jours</option><option value="90">90 jours</option></select></label></div><div id="s-body"></div>`;$('#s-days').onchange=statsBody;statsBody()}
+async function statsBody(){const el=$('#s-body');let h='';
+ try{const s=await api('/validation/stats',{query:{days:$('#s-days').value}});const col={validated:'#16a34a',indicative:'#d97706',rejected:'#dc2626',pending:'#64748b'};
+  h+=`<div class="kpis">${Object.entries(s.totals).map(([k,v])=>kpi(STL[k],v)).join('')}${kpi('Décisions admin',s.admin_overrides)}${kpi('Bloquées > 5 min',s.pending_stuck)}</div>
+  <div class="g2"><div class="card"><h3>Qualité par jour</h3>${s.days.map(d=>{const t=d.validated+d.indicative+d.rejected+d.pending;return `<div class="row" style="align-items:center;margin:4px 0;flex-wrap:nowrap"><span class="sub" style="width:80px">${d.date}</span><div style="flex:1">${Ch.stack(['validated','indicative','rejected','pending'].map(k=>({l:STL[k],v:d[k],c:col[k]})))}</div><span class="sub" style="width:36px;text-align:right">${t}</span></div>`}).join('')||'<div class="empty">Aucune donnée</div>'}</div>
+  <div class="card"><h3>Raisons les plus fréquentes</h3>${Ch.bars(s.top_reasons.map(r=>({l:LAB[r.code]||r.code,v:r.n})))}</div></div>`}catch(e){h+=`<div class="empty">${esc(e.message)}</div>`}
+ try{const q=await api('/quota/overview');h+=`<h4>Crédits et missions</h4><div class="kpis">${kpi('Utilisateurs avec solde',q.users)}${kpi('Solde moyen',q.avg_balance)}${kpi('Objectif moyen / jour',q.avg_daily_target)}${kpi('Besoin global',Math.round(q.context.need_global*100)+' %')}${kpi('Contributeurs actifs (7 j)',q.context.supply)}${kpi('Déficit de mesures',Math.round(q.context.deficit))}</div>`}catch{}
+ try{const r=await api('/missions/ranking/active');h+=`<div class="card tw" style="padding:0"><div style="padding:14px"><h3 style="margin:0">Utilisateurs les plus actifs</h3></div><table><thead><tr><th>Pseudonyme</th><th>Score</th><th>Activité 14 j</th><th>Fiabilité</th><th>Missions réussies</th><th>Acceptation</th><th>En cours</th></tr></thead><tbody>${r.map(u=>`<tr><td>${esc(u.pseudonym)}</td><td>${Math.round(u.score*100)} %</td><td>${u.activity_14d}</td><td>${Math.round(u.reliability*100)} %</td><td>${Math.round(u.completion*100)} %</td><td>${Math.round(u.acceptance*100)} %</td><td>${u.load}</td></tr>`).join('')||'<tr><td colspan="7" class="empty">Aucun utilisateur éligible.</td></tr>'}</tbody></table></div>`}catch{}
+ el.innerHTML=h}
+</script></body></html>

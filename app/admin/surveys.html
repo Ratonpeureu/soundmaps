@@ -1,856 +1,145 @@
-<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SunuSound · Enquêtes</title>
-<style>
-:root{--bg:#f4f7f8;--card:#fff;--tx:#0f1b22;--mu:#64748b;--bd:#e2e8f0;--pr:#0e9f9a;--ok:#16a34a;--wa:#d97706;--er:#dc2626;--pe:#64748b;--vi:#7c3aed}
-@media (prefers-color-scheme:dark){:root{--bg:#0b1116;--card:#151d24;--tx:#e6edf2;--mu:#8da0ad;--bd:#26323b}}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx)}
-header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:5}
-header h1{font-size:16px;margin:0;flex:1}header small{color:var(--mu)}
-header nav{display:flex;gap:4px}
-header nav button,header nav a{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--mu);font-weight:600;text-decoration:none;font:inherit}
-header nav .on{background:var(--pr);color:#fff}
-main{padding:16px 20px 80px}.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-top:12px}
-input,select,textarea,button{font:inherit;color:inherit}input,select,textarea{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px;width:100%}
-textarea{font-family:ui-monospace,Menlo,monospace;font-size:12px;min-height:100px;resize:vertical}
-button.b{border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;background:var(--pr);color:#fff;width:auto}
-button.b.s{background:var(--bd);color:var(--tx)}button.b.ok{background:var(--ok)}button.b.wa{background:var(--wa)}button.b.er{background:var(--er)}
-button.b:disabled{opacity:.5;cursor:default}
-.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.row>*{flex:0 0 auto}.row .grow{flex:1 1 200px}
-.row label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mu)}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:top}
-th{font-size:12px;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
-tr.r{cursor:pointer}tr.r:hover td{background:rgba(14,159,154,.06)}
-.chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;margin:1px 2px}
-.chip.draft{background:#64748b22;color:var(--pe)}.chip.active{background:#16a34a22;color:var(--ok)}
-.chip.paused{background:#d9770622;color:var(--wa)}.chip.closed{background:#dc262622;color:var(--er)}
-.chip.pending{background:#64748b22;color:var(--pe)}.chip.validated{background:#16a34a22;color:var(--ok)}
-.chip.indicative{background:#d9770622;color:var(--wa)}.chip.rejected{background:#dc262622;color:var(--er)}
-.chip.info{background:var(--bd);color:var(--mu)}
-.kv{font-size:12px;color:var(--mu)}.kv b{display:block;color:var(--tx);font-size:14px}
-.toast{position:fixed;right:16px;top:16px;background:var(--tx);color:var(--bg);padding:10px 14px;border-radius:10px;z-index:20;max-width:340px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin-bottom:12px}
-.tabs button{border:0;background:none;padding:8px 14px;cursor:pointer;color:var(--mu);font-weight:600;border-bottom:2px solid transparent}
-.tabs button.on{color:var(--pr);border-bottom-color:var(--pr)}
-#login{max-width:360px;margin:12vh auto;padding:0 16px}#login .card{display:flex;flex-direction:column;gap:10px}
-pre{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;font-size:12px;max-height:340px;margin:0}
-.muted{color:var(--mu);font-size:12px}.hidden{display:none!important}
-details>summary{cursor:pointer;color:var(--pr);font-weight:600;padding:4px 0}
-.legend{display:flex;gap:12px;font-size:11px;color:var(--mu);margin-top:4px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
-</style>
-</head>
-<body>
-
-<div id="login">
-  <div class="card">
-    <h2 style="margin:0">SunuSound · Enquêtes</h2>
-    <label class="kv">URL de l'API<input id="l-api" style="width:100%"></label>
-    <input id="l-email" type="email" placeholder="E-mail" autocomplete="username">
-    <input id="l-pass" type="password" placeholder="Mot de passe" autocomplete="current-password">
-    <button class="b" id="l-go">Se connecter</button>
-    <div id="l-err" style="color:var(--er)"></div>
-  </div>
-</div>
-
-<div id="app" hidden>
-  <header>
-    <h1>SunuSound · Enquêtes</h1>
-    <small id="who"></small>
-    <nav>
-      <button data-tab="surveys" class="on">Enquêtes</button>
-      <button data-tab="responses">Réponses</button>
-      <button data-tab="respondents">Répondants</button>
-      <button data-tab="reference">Références</button>
-      <button data-tab="catalog">Catalogue</button>
-    </nav>
-    <a href="index.html" title="Retour à la validation des mesures">← Mesures</a>
-    <button class="b s" id="logout">Déconnexion</button>
-  </header>
-  <main>
-    <section id="tab-surveys">
-      <div class="card">
-        <div class="row">
-          <button class="b" id="sv-new">Nouvelle enquête</button>
-          <div class="grow"></div>
-          <label>Statut<select id="sv-f-status">
-            <option value="">Tous</option><option value="draft">Brouillon</option>
-            <option value="active">Active</option><option value="paused">En pause</option>
-            <option value="closed">Fermée</option></select></label>
-          <label>Domaine<select id="sv-f-domain"><option value="">Tous</option></select></label>
-          <button class="b s" id="sv-refresh">Actualiser</button>
-        </div>
-      </div>
-      <div class="card" style="padding:0;overflow:auto">
-        <table>
-          <thead><tr><th>Titre</th><th>Domaine</th><th>Statut</th><th>Unité</th><th>Version</th><th>Réponses</th><th>Créée</th></tr></thead>
-          <tbody id="sv-rows"></tbody>
-        </table>
-      </div>
-      <div id="sv-editor" class="hidden"></div>
-    </section>
-
-    <section id="tab-responses" hidden>
-      <div class="card">
-        <div class="row">
-          <label>Enquête<select id="rs-survey"><option value="">Toutes</option></select></label>
-          <label>Statut
-            <div id="rs-status" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:3px">
-              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="pending" checked> En évaluation</label>
-              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="indicative" checked> Indicative</label>
-              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="rejected" checked> Rejetée</label>
-              <label style="flex-direction:row;align-items:center;gap:3px;font-size:12px"><input type="checkbox" value="validated"> Validée</label>
-            </div>
-          </label>
-          <label>Évaluateur<select id="rs-eval"><option value="">Tous</option><option value="auto">Auto</option><option value="admin">Admin</option></select></label>
-          <label>Raison<input id="rs-reason" placeholder="code" style="width:150px"></label>
-          <label>Score min<input id="rs-min" type="number" step="0.05" min="0" max="1" style="width:90px"></label>
-          <label>Score max<input id="rs-max" type="number" step="0.05" min="0" max="1" style="width:90px"></label>
-          <label>Du<input id="rs-from" type="date"></label>
-          <label>Au<input id="rs-to" type="date"></label>
-          <label>Par page<select id="rs-size"><option>25</option><option selected>50</option><option>100</option></select></label>
-          <button class="b" id="rs-go">Filtrer</button>
-        </div>
-      </div>
-      <div class="card" style="padding:0;overflow:auto">
-        <table>
-          <thead><tr>
-            <th><input type="checkbox" id="rs-all"></th>
-            <th>Date</th><th>Enquête</th><th>Mode</th><th>Cellule</th><th>Statut</th><th>Score</th><th>Raisons</th>
-          </tr></thead>
-          <tbody id="rs-rows"></tbody>
-        </table>
-      </div>
-      <div class="row" style="margin-top:10px;justify-content:space-between">
-        <span id="rs-count" class="kv"></span>
-        <span><button class="b s" id="rs-prev">← Précédent</button> <button class="b s" id="rs-next">Suivant →</button></span>
-      </div>
-      <div class="card" id="rs-bulk" hidden>
-        <div class="row">
-          <b id="rs-bulk-count"></b>
-          <select id="rs-bulk-status">
-            <option value="validated">Valider</option>
-            <option value="indicative">Indicative</option>
-            <option value="rejected">Rejeter</option>
-          </select>
-          <input id="rs-bulk-reason" placeholder="Motif (3 caractères min.)" class="grow">
-          <button class="b" id="rs-bulk-apply">Appliquer</button>
-          <button class="b s" id="rs-bulk-release">Remettre en automatique</button>
-          <button class="b s" id="rs-bulk-clear">Désélectionner</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="tab-respondents" hidden>
-      <div class="card" id="rd-personas"></div>
-      <div class="card" style="padding:0;overflow:auto">
-        <div style="padding:14px"><b>Confiance la plus faible</b></div>
-        <table><thead><tr><th>Pseudo</th><th>Confiance</th><th>Persona</th><th>Réponses</th><th>Tendance</th><th>Drapeaux</th></tr></thead><tbody id="rd-rows"></tbody></table>
-      </div>
-    </section>
-
-    <section id="tab-reference" hidden>
-      <div class="card">
-        <div class="row">
-          <label>Indicateur<select id="rf-filter"><option value="">Tous</option></select></label>
-          <button class="b s" id="rf-refresh">Actualiser</button>
-          <button class="b" id="rf-add">Ajouter</button>
-        </div>
-        <div id="rf-form" class="hidden" style="margin-top:12px">
-          <div class="row">
-            <label>Indicateur<select id="rf-ind"></select></label>
-            <label>Stat<select id="rf-stat"><option value="mean">mean</option><option value="share">share</option></select></label>
-            <label>Catégorie<input id="rf-cat" placeholder="optionnel" style="width:130px"></label>
-            <label>Valeur<input id="rf-val" type="number" step="any" style="width:110px"></label>
-            <label>H3<input id="rf-h3" placeholder="optionnel" style="width:150px"></label>
-            <label>Résolution<input id="rf-res" type="number" min="3" max="9" style="width:80px"></label>
-            <label>Année<input id="rf-year" type="number" min="1900" max="2100" style="width:90px"></label>
-            <label>Source<input id="rf-src" placeholder="Recensement 2023" style="width:200px"></label>
-            <button class="b" id="rf-save">Enregistrer</button>
-            <button class="b s" id="rf-cancel">Annuler</button>
-          </div>
-        </div>
-      </div>
-      <div class="card" style="padding:0;overflow:auto">
-        <table><thead><tr><th>Indicateur</th><th>Stat</th><th>Catégorie</th><th>Valeur</th><th>Périmètre</th><th>Année</th><th>Source</th><th></th></tr></thead><tbody id="rf-rows"></tbody></table>
-      </div>
-    </section>
-
-    <section id="tab-catalog" hidden>
-      <div class="card" id="cat-body"></div>
-    </section>
-  </main>
-</div>
-
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SunuSound · Enquêtes</title><link rel="stylesheet" href="admin.css"></head><body>
+<script src="admin.js"></script>
 <script>
-const $ = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const toast = m => { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.append(t); setTimeout(() => t.remove(), 3500); };
-const fmtDate = s => s ? new Date(s).toLocaleString('fr-FR', {dateStyle:'short', timeStyle:'short'}) : '—';
-
-const STATUS_LABELS = {draft:'Brouillon', active:'Active', paused:'En pause', closed:'Fermée'};
-const QSTATUS_LABELS = {pending:'En évaluation', validated:'Validée', indicative:'Indicative', rejected:'Rejetée'};
-const MODE_LABELS = {profile:'Profil', mixed:'Mixte', direct:'Direct'};
-const ORIGIN_LABELS = {deterministic:'Déterministe', cluster:'Cluster', ai:'IA', admin:'Admin'};
-const PROFILE_STATUS_LABELS = {active:'Actif', retired:'Retiré'};
-
-const S = {
-  base: localStorage.getItem('ss_api') || 'https://soundmaps.rhmanager.site/api/v1',
-  access: sessionStorage.getItem('ss_at'),
-  refresh: sessionStorage.getItem('ss_rt'),
-  me: null,
-  catalog: null,
-  surveys: [],
-  responses: {items: [], total: 0, offset: 0},
-  selected: new Set(),
-};
-let refreshing = null;
-
-function saveTokens(a, r) { S.access = a; S.refresh = r; sessionStorage.setItem('ss_at', a); sessionStorage.setItem('ss_rt', r); }
-function logout() { S.access = S.refresh = null; sessionStorage.clear(); $('#app').hidden = true; $('#login').hidden = false; }
-
-async function refreshTokens() {
-  if (!S.refresh) return false;
-  refreshing ||= fetch(S.base + '/auth/refresh', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({refresh_token: S.refresh})})
-    .then(async r => { if (!r.ok) return false; const d = await r.json(); saveTokens(d.access_token, d.refresh_token); return true; })
-    .catch(() => false).finally(() => { refreshing = null; });
-  return refreshing;
-}
-
-async function api(path, {method='GET', body, query} = {}, retry = true) {
-  const url = new URL(S.base + path);
-  for (const [k, v] of Object.entries(query || {})) {
-    if (Array.isArray(v)) v.forEach(x => url.searchParams.append(k, x));
-    else if (v !== '' && v != null) url.searchParams.set(k, v);
-  }
-  let r;
-  try {
-    r = await fetch(url, {method,
-      headers: {...(body ? {'Content-Type':'application/json'} : {}), ...(S.access ? {Authorization: 'Bearer ' + S.access} : {})},
-      body: body ? JSON.stringify(body) : undefined});
-  } catch { throw new Error('Serveur injoignable'); }
-  if (r.status === 401 && retry && await refreshTokens()) return api(path, {method, body, query}, false);
-  if (r.status === 401) { logout(); throw new Error('Session expirée'); }
-  const data = await r.json().catch(() => null);
-  if (!r.ok) {
-    const detail = typeof data?.detail === 'string' ? data.detail : (data?.detail?.code || 'Erreur ' + r.status);
-    throw new Error(detail);
-  }
-  return data;
-}
-
-// -------- Auth
-$('#l-api').value = S.base;
-$('#l-go').onclick = async () => {
-  $('#l-err').textContent = '';
-  S.base = $('#l-api').value.trim().replace(/\/+$/, '');
-  localStorage.setItem('ss_api', S.base);
-  try {
-    const r = await fetch(S.base + '/auth/login', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({email: $('#l-email').value.trim(), password: $('#l-pass').value})});
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Erreur ' + r.status);
-    saveTokens(d.access_token, d.refresh_token);
-    await start();
-  } catch (e) { $('#l-err').textContent = e.message; }
-};
-$('#l-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('#l-go').click(); });
-$('#logout').onclick = async () => { try { await api('/auth/logout', {method:'POST', body:{refresh_token: S.refresh}}); } catch {} logout(); };
-
-async function start() {
-  S.me = await api('/users/me');
-  if (!['tenant_admin', 'analyst'].includes(S.me.role)) { logout(); throw new Error("Accès refusé."); }
-  $('#who').textContent = `${S.me.pseudonym} · ${S.me.role === 'tenant_admin' ? 'Admin' : 'Analyste'}`;
-  $('#login').hidden = true; $('#app').hidden = false;
-  S.catalog = await api('/datamap/catalog');
-  fillCatalogSelects();
-  await Promise.all([loadSurveys(), loadReferences(), loadRespondents()]);
-}
-
-// -------- Tabs
-$$('header nav button').forEach(b => b.onclick = () => {
-  $$('header nav button').forEach(x => x.classList.toggle('on', x === b));
-  ['surveys','responses','respondents','reference','catalog'].forEach(t => $('#tab-' + t).hidden = b.dataset.tab !== t);
-  if (b.dataset.tab === 'surveys') loadSurveys();
-  if (b.dataset.tab === 'responses') loadResponses();
-  if (b.dataset.tab === 'respondents') loadRespondents();
-  if (b.dataset.tab === 'reference') loadReferences();
-  if (b.dataset.tab === 'catalog') renderCatalog();
-});
-
-function fillCatalogSelects() {
-  const domainSel = $('#sv-f-domain'), indSel = $('#rf-filter'), indSel2 = $('#rf-ind');
-  S.catalog.domains.forEach(d => domainSel.append(new Option(d.label, d.key)));
-  indSel.innerHTML = '<option value="">Tous</option>';
-  indSel2.innerHTML = '';
-  S.catalog.domains.forEach(d => d.indicators.forEach(i => {
-    indSel.append(new Option(`${d.label} · ${i.label}`, i.key));
-    indSel2.append(new Option(`${d.label} · ${i.label}`, i.key));
-  }));
-}
-
-// -------- Surveys
-async function loadSurveys() {
-  const status = $('#sv-f-status').value, domain = $('#sv-f-domain').value;
-  try {
-    S.surveys = await api('/survey-admin/surveys', {query: {status, domain}});
-    renderSurveys();
-    fillSurveySelects();
-  } catch (e) { toast(e.message); }
-}
-
-function fillSurveySelects() {
-  const sel = $('#rs-survey');
-  sel.innerHTML = '<option value="">Toutes</option>';
-  S.surveys.forEach(s => sel.append(new Option(s.title, s.id)));
-}
-
-function renderSurveys() {
-  const body = $('#sv-rows');
-  body.innerHTML = '';
-  if (!S.surveys.length) { body.innerHTML = '<tr><td colspan="7" class="muted" style="padding:24px">Aucune enquête.</td></tr>'; return; }
-  S.surveys.forEach(s => {
-    const tr = document.createElement('tr'); tr.className = 'r';
-    tr.innerHTML = `<td><b>${esc(s.title)}</b><div class="muted">${esc(s.description || '')}</div></td>
-      <td>${esc(s.domain)}</td>
-      <td><span class="chip ${esc(s.status)}">${esc(STATUS_LABELS[s.status] || s.status)}</span></td>
-      <td>${esc(s.unit)}</td><td>v${s.version}</td><td>${s.responses}</td>
-      <td class="muted">${fmtDate(s.created_at)}</td>`;
-    tr.onclick = () => openEditor(s.id);
-    body.append(tr);
-  });
-}
-
-$('#sv-refresh').onclick = loadSurveys;
-$('#sv-f-status').onchange = loadSurveys;
-$('#sv-f-domain').onchange = loadSurveys;
-$('#sv-new').onclick = () => openEditor(null);
-
-async function openEditor(surveyId) {
-  const wrap = $('#sv-editor');
-  wrap.classList.remove('hidden');
-  wrap.innerHTML = '<div class="card">Chargement…</div>';
-  let s = null;
-  if (surveyId) {
-    try { s = await api('/survey-admin/surveys/' + surveyId); }
-    catch (e) { toast(e.message); wrap.innerHTML = ''; wrap.classList.add('hidden'); return; }
-  }
-  renderEditor(s);
-}
-
-function renderEditor(s) {
-  const wrap = $('#sv-editor');
-  const isEdit = !!s;
-  const defn = s ? JSON.stringify(s.definition, null, 2) : '';
-  wrap.innerHTML = `
-    <div class="card">
-      <div class="row" style="justify-content:space-between">
-        <h3 style="margin:0">${isEdit ? 'Modifier l\'enquête' : 'Nouvelle enquête'}</h3>
-        <button class="b s" id="ed-close">Fermer</button>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <label class="grow">Domaine<select id="ed-domain" ${isEdit ? 'disabled' : ''}>${S.catalog.domains.map(d => `<option value="${esc(d.key)}" ${isEdit && s.domain === d.key ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></label>
-        <label class="grow">Titre<input id="ed-title" maxlength="160" value="${isEdit ? esc(s.title) : ''}"></label>
-      </div>
-      <label style="display:block;margin-top:8px">Description<textarea id="ed-desc" maxlength="1500" style="min-height:60px">${isEdit ? esc(s.description || '') : ''}</textarea></label>
-      <div class="row" style="margin-top:8px">
-        <label>Cooldown (j)<input id="ed-cooldown" type="number" min="0" max="365" value="${isEdit ? s.cooldown_days : 30}" style="width:100px"></label>
-        <label>Cible<input id="ed-target" type="number" min="0" value="${isEdit ? s.target_responses : 0}" style="width:110px"></label>
-        <label>Début<input id="ed-start" type="datetime-local" value="${isEdit && s.starts_at ? s.starts_at.slice(0,16) : ''}" style="width:180px"></label>
-        <label>Fin<input id="ed-end" type="datetime-local" value="${isEdit && s.ends_at ? s.ends_at.slice(0,16) : ''}" style="width:180px"></label>
-        <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="ed-sensitive" ${isEdit && s.allow_sensitive_axes ? 'checked' : ''} style="width:auto"> Axes sensibles</label>
-      </div>
-      <div style="margin-top:12px">
-        <div class="row" style="justify-content:space-between">
-          <b>Définition (JSON)</b>
-          ${!isEdit ? '<button class="b s" id="ed-design">Brouillon par IA</button>' : ''}
-        </div>
-        ${!isEdit ? `
-          <div id="ed-design-box" class="hidden" style="margin-top:8px">
-            <div class="row">
-              <label class="grow">Objectif<input id="ed-goal" maxlength="500" placeholder="Ex : mesurer l'accès à l'eau potable"></label>
-              <label>Unité<select id="ed-unit">
-                <option value="household">Ménage</option><option value="person">Personne</option>
-                <option value="dwelling">Logement</option><option value="enterprise">Entreprise</option>
-                <option value="farm">Exploitation</option><option value="facility">Établissement</option>
-                <option value="community">Communauté</option></select></label>
-              <label>Questions max<input id="ed-maxq" type="number" min="3" max="60" value="12" style="width:100px"></label>
-              <button class="b" id="ed-design-go">Générer</button>
-            </div>
-          </div>` : ''}
-        <textarea id="ed-def" style="min-height:240px;margin-top:8px">${defn}</textarea>
-      </div>
-      ${isEdit ? `
-        <div class="card" style="margin-top:12px;background:var(--bg)">
-          <div class="row">
-            <label>Statut<select id="ed-status">${Object.entries(STATUS_LABELS).map(([k,v]) => `<option value="${k}" ${s.status===k?'selected':''}>${v}</option>`).join('')}</select></label>
-            <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="ed-use-ai" style="width:auto"> Utiliser l'IA</label>
-            <button class="b" id="ed-status-apply">Appliquer</button>
-          </div>
-        </div>` : ''}
-      <div class="row" style="margin-top:12px">
-        <button class="b" id="ed-save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
-      </div>
-      ${isEdit ? renderSurveyDetail() : ''}
-    </div>
-  `;
-  $('#ed-close').onclick = () => { wrap.classList.add('hidden'); wrap.innerHTML = ''; loadSurveys(); };
-
-  if (!isEdit) {
-    $('#ed-design').onclick = () => $('#ed-design-box').classList.toggle('hidden');
-    $('#ed-design-go').onclick = async () => {
-      try {
-        const d = await api('/survey-admin/surveys/design', {method:'POST', body: {
-          domain: $('#ed-domain').value,
-          goal: $('#ed-goal').value.trim(),
-          indicators: [],
-          unit: $('#ed-unit').value,
-          max_questions: +$('#ed-maxq').value,
-        }});
-        $('#ed-title').value = d.title || '';
-        $('#ed-desc').value = d.description || '';
-        $('#ed-def').value = JSON.stringify(d.definition, null, 2);
-        toast('Brouillon généré, à relire.');
-      } catch (e) { toast(e.message); }
-    };
-  } else {
-    $('#ed-status-apply').onclick = async () => {
-      try {
-        await api(`/survey-admin/surveys/${s.id}/status`, {method:'POST', body: {
-          status: $('#ed-status').value, use_ai: $('#ed-use-ai').checked}});
-        toast('Statut mis à jour');
-        await openEditor(s.id);
-      } catch (e) { toast(e.message); }
-    };
-    bindSurveyDetail(s);
-  }
-
-  $('#ed-save').onclick = async () => {
-    let parsed;
-    try { parsed = JSON.parse($('#ed-def').value); }
-    catch { toast('Définition JSON invalide'); return; }
-    const common = {
-      title: $('#ed-title').value.trim(),
-      description: $('#ed-desc').value.trim() || null,
-      definition: parsed,
-      cooldown_days: +$('#ed-cooldown').value,
-      target_responses: +$('#ed-target').value,
-      starts_at: $('#ed-start').value ? new Date($('#ed-start').value).toISOString() : null,
-      ends_at: $('#ed-end').value ? new Date($('#ed-end').value).toISOString() : null,
-      allow_sensitive_axes: $('#ed-sensitive').checked,
-    };
-    try {
-      if (isEdit) {
-        await api('/survey-admin/surveys/' + s.id, {method:'PATCH', body: common});
-        toast('Enquête mise à jour');
-        await openEditor(s.id);
-      } else {
-        const created = await api('/survey-admin/surveys', {method:'POST', body: {
-          ...common, domain: $('#ed-domain').value}});
-        toast('Enquête créée');
-        await openEditor(created.id);
-      }
-      loadSurveys();
-    } catch (e) { toast(e.message); }
-  };
-}
-
-function renderSurveyDetail() {
-  return `
-    <div class="card" style="margin-top:12px;background:var(--bg)">
-      <div class="tabs">
-        <button data-t="profiles" class="on">Profils</button>
-        <button data-t="stats">Statistiques</button>
-        <button data-t="events">Événements</button>
-      </div>
-      <div id="sv-tab-profiles">…</div>
-      <div id="sv-tab-stats" class="hidden">…</div>
-      <div id="sv-tab-events" class="hidden">…</div>
-    </div>`;
-}
-
-function bindSurveyDetail(s) {
-  const root = $('#sv-editor');
-  $$('.tabs button', root).forEach(b => b.onclick = () => {
-    $$('.tabs button', root).forEach(x => x.classList.toggle('on', x === b));
-    ['profiles','stats','events'].forEach(t => $('#sv-tab-' + t).hidden = b.dataset.t !== t);
-  });
-  loadProfiles(s); loadStats(s); loadEvents(s);
-}
-
-async function loadProfiles(s) {
-  const el = $('#sv-tab-profiles');
-  if (!el) return;
-  try {
-    const profs = await api(`/survey-admin/surveys/${s.id}/profiles`);
-    const slots = (s.preview?.slots || []).filter(x => x.mode === 'profile').map(x => x.key);
-    if (!slots.length) { el.innerHTML = '<p class="muted">Aucun slot de profil dans cette enquête.</p>'; return; }
-    const bySlot = {};
-    profs.forEach(p => (bySlot[p.slot] = bySlot[p.slot] || []).push(p));
-    let html = `
-      <div class="row" style="margin-bottom:10px">
-        <select id="pf-slot">${slots.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select>
-        <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="pf-use-ai" style="width:auto"> IA</label>
-        <button class="b" id="pf-gen">Générer</button>
-        <button class="b" id="pf-evolve">Faire évoluer</button>
-        <button class="b s" id="pf-add">Ajouter</button>
-      </div>
-      <div id="pf-form" class="card hidden" style="background:var(--card)">
-        <div class="row">
-          <label>Slot<input id="pf-new-slot" style="width:130px"></label>
-          <label class="grow">Libellé<input id="pf-new-label" maxlength="120"></label>
-          <label class="grow">Description<input id="pf-new-desc" maxlength="300"></label>
-        </div>
-        <label style="display:block;margin-top:8px">Réponses (JSON)<textarea id="pf-new-answers" style="min-height:120px">{}</textarea></label>
-        <div class="row" style="margin-top:8px">
-          <button class="b" id="pf-new-save">Créer</button>
-          <button class="b s" id="pf-new-cancel">Annuler</button>
-        </div>
-      </div>
-      <div id="pf-list"></div>`;
-    el.innerHTML = html;
-    let list = '';
-    slots.forEach(slot => {
-      list += `<h4 style="margin:12px 0 6px">${esc(slot)}</h4>`;
-      const items = bySlot[slot] || [];
-      if (!items.length) { list += '<p class="muted">Aucun profil.</p>'; return; }
-      list += `<div style="overflow:auto"><table><thead><tr>
-        <th>Libellé</th><th>Origine</th><th>Statut</th><th>Affiché</th><th>Choisi</th><th>Taux</th><th>Part</th><th></th>
-        </tr></thead><tbody>`;
-      items.forEach(p => {
-        list += `<tr>
-          <td><b>${esc(p.label)}</b><div class="muted">${esc(p.description || '')}</div>
-            <div class="muted">${(p.summary || []).map(x => esc(x.answer)).join(' · ')}</div></td>
-          <td><span class="chip info">${esc(ORIGIN_LABELS[p.origin] || p.origin)}</span></td>
-          <td><span class="chip ${p.status === 'active' ? 'active' : 'info'}">${esc(PROFILE_STATUS_LABELS[p.status] || p.status)}</span></td>
-          <td>${p.shown}</td><td>${p.picked}</td>
-          <td>${p.pick_rate != null ? Math.round(p.pick_rate*100)+'%' : '—'}</td>
-          <td>${p.share_of_picks != null ? Math.round(p.share_of_picks*100)+'%' : '—'}</td>
-          <td style="white-space:nowrap">
-            <button class="b s" data-pin="${esc(p.id)}" data-v="${p.pinned}">${p.pinned ? 'Détacher' : 'Épingler'}</button>
-            <button class="b s" data-retire="${esc(p.id)}" data-st="${p.status}">${p.status === 'active' ? 'Retirer' : 'Réactiver'}</button>
-          </td></tr>`;
-      });
-      list += '</tbody></table></div>';
-    });
-    $('#pf-list').innerHTML = list;
-
-    $('#pf-list').querySelectorAll('[data-pin]').forEach(b => b.onclick = async () => {
-      try { await api('/survey-admin/profiles/' + b.dataset.pin, {method:'PATCH', body: {pinned: b.dataset.v !== 'true'}}); loadProfiles(s); }
-      catch (e) { toast(e.message); }
-    });
-    $('#pf-list').querySelectorAll('[data-retire]').forEach(b => b.onclick = async () => {
-      try { await api('/survey-admin/profiles/' + b.dataset.retire, {method:'PATCH', body: {retire: b.dataset.st === 'active'}}); loadProfiles(s); }
-      catch (e) { toast(e.message); }
-    });
-    $('#pf-gen').onclick = async () => {
-      try {
-        const r = await api(`/survey-admin/surveys/${s.id}/profiles/generate`, {method:'POST', body: {
-          slot: $('#pf-slot').value, n: null, use_ai: $('#pf-use-ai').checked}});
-        toast(`${r.added} profil(s) ajouté(s)`); loadProfiles(s);
-      } catch (e) { toast(e.message); }
-    };
-    $('#pf-evolve').onclick = async () => {
-      try {
-        const r = await api(`/survey-admin/surveys/${s.id}/evolve`, {method:'POST', body: {use_ai: $('#pf-use-ai').checked}});
-        toast(`Génération ${r.generation} — voir Événements`);
-        loadProfiles(s); loadEvents(s);
-      } catch (e) { toast(e.message); }
-    };
-    $('#pf-add').onclick = () => $('#pf-form').classList.toggle('hidden');
-    $('#pf-new-cancel').onclick = () => $('#pf-form').classList.add('hidden');
-    $('#pf-new-save').onclick = async () => {
-      let answers;
-      try { answers = JSON.parse($('#pf-new-answers').value); } catch { toast('JSON invalide'); return; }
-      try {
-        await api(`/survey-admin/surveys/${s.id}/profiles`, {method:'POST', body: {
-          slot: $('#pf-new-slot').value.trim(),
-          label: $('#pf-new-label').value.trim(),
-          description: $('#pf-new-desc').value.trim() || null,
-          answers,
-        }});
-        toast('Profil créé'); $('#pf-form').classList.add('hidden'); loadProfiles(s);
-      } catch (e) { toast(e.message); }
-    };
-  } catch (e) {
-    el.innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-  }
-}
-
-async function loadStats(s) {
-  const el = $('#sv-tab-stats');
-  if (!el) return;
-  try {
-    const st = await api(`/survey-admin/surveys/${s.id}/stats`, {query: {days: 30}});
-    const bars = (st.days || []).map(d => {
-      const total = (d.pending||0)+(d.validated||0)+(d.indicative||0)+(d.rejected||0);
-      if (!total) return '';
-      const p = k => (d[k]||0)/total*100;
-      return `<div class="row" style="align-items:center;margin:2px 0;font-size:12px;flex-wrap:nowrap">
-        <span style="width:90px;color:var(--mu)">${d.date}</span>
-        <div style="flex:1;display:flex;height:10px;border-radius:3px;overflow:hidden;background:var(--bd);min-width:60px">
-          ${d.validated ? `<i style="width:${p('validated')}%;background:#16a34a"></i>` : ''}
-          ${d.indicative ? `<i style="width:${p('indicative')}%;background:#d97706"></i>` : ''}
-          ${d.rejected ? `<i style="width:${p('rejected')}%;background:#dc2626"></i>` : ''}
-          ${d.pending ? `<i style="width:${p('pending')}%;background:#64748b"></i>` : ''}
-        </div>
-        <span style="width:40px;text-align:right;color:var(--mu)">${total}</span>
-      </div>`;
-    }).join('');
-    el.innerHTML = `
-      <div class="row" style="gap:16px;margin-bottom:10px">
-        <div class="kv">Total<b>${st.total}</b></div>
-        <div class="kv">Contributeurs<b>${st.contributors}</b></div>
-        <div class="kv">Cellules<b>${st.cells_covered}</b></div>
-        ${st.progress != null ? `<div class="kv">Progression<b>${Math.round(st.progress*100)}%</b></div>` : ''}
-        <div class="kv">Génération<b>${st.profile_generation}</b></div>
-      </div>
-      <div style="margin-bottom:6px">
-        ${Object.entries(st.by_status).map(([k,v]) => `<span class="chip ${k}">${esc(QSTATUS_LABELS[k] || k)} ${v}</span>`).join('')}
-        ${Object.entries(st.modes).map(([k,v]) => `<span class="chip info">${esc(MODE_LABELS[k] || k)} ${v}</span>`).join('')}
-      </div>
-      <h4 style="margin:14px 0 6px">Par jour</h4>
-      ${bars || '<span class="muted">Aucune donnée.</span>'}
-      <div class="legend">
-        <span><i style="background:#16a34a"></i>Validée</span>
-        <span><i style="background:#d97706"></i>Indicative</span>
-        <span><i style="background:#dc2626"></i>Rejetée</span>
-        <span><i style="background:#64748b"></i>En évaluation</span>
-      </div>
-      <h4 style="margin:14px 0 6px">Raisons les plus fréquentes</h4>
-      ${(st.top_reasons || []).map(r => `<div class="row" style="align-items:center;margin:3px 0">
-        <span style="flex:1">${esc(r.label)}</span><span class="chip info">${r.n}</span></div>`).join('') || '<span class="muted">Aucune.</span>'}
-      <h4 style="margin:14px 0 6px">Taux « aucun profil » par slot</h4>
-      ${Object.entries(st.none_rate_by_slot || {}).map(([k,v]) => `<div class="row" style="align-items:center;margin:3px 0">
-        <span style="flex:1">${esc(k)}</span><span class="chip info">${Math.round(v*100)}%</span></div>`).join('') || '<span class="muted">—</span>'}
-    `;
-  } catch (e) { el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-}
-
-async function loadEvents(s) {
-  const el = $('#sv-tab-events');
-  if (!el) return;
-  try {
-    const evs = await api(`/survey-admin/surveys/${s.id}/profile-events`);
-    if (!evs.length) { el.innerHTML = '<p class="muted">Aucun événement.</p>'; return; }
-    el.innerHTML = evs.map(e => `
-      <div class="card" style="margin-top:8px">
-        <div class="row" style="justify-content:space-between">
-          <b>Génération ${e.generation}</b>
-          <span class="muted">${fmtDate(e.at)}</span>
-        </div>
-        <div class="muted">Méthode : ${esc(e.method)} · +${e.added} / −${e.retired}</div>
-        <pre style="margin-top:6px">${esc(JSON.stringify(e.details, null, 2))}</pre>
-      </div>`).join('');
-  } catch (e) { el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
-}
-
-// -------- Responses
-async function loadResponses() {
-  const status = $$('#rs-status input:checked').map(i => i.value);
-  const filters = {
-    survey_id: $('#rs-survey').value,
-    status,
-    evaluator: $('#rs-eval').value,
-    reason: $('#rs-reason').value.trim(),
-    min_score: $('#rs-min').value,
-    max_score: $('#rs-max').value,
-    date_from: $('#rs-from').value,
-    date_to: $('#rs-to').value,
-    limit: $('#rs-size').value,
-    offset: S.responses.offset,
-  };
-  try {
-    const d = await api('/survey-admin/responses', {query: filters});
-    S.responses.items = d.items;
-    S.responses.total = d.total;
-    S.selected.clear();
-    renderResponses();
-  } catch (e) { toast(e.message); }
-}
-
-function renderResponses() {
-  const body = $('#rs-rows');
-  body.innerHTML = '';
-  if (!S.responses.items.length) {
-    body.innerHTML = '<tr><td colspan="8" class="muted" style="padding:24px">Aucune réponse.</td></tr>';
-  } else {
-    S.responses.items.forEach(r => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td><input type="checkbox" class="rs-sel" data-id="${esc(r.id)}"></td>
-        <td>${fmtDate(r.submitted_at)}</td>
-        <td>${esc(r.survey)}</td>
-        <td><span class="chip info">${esc(MODE_LABELS[r.mode] || r.mode)}</span></td>
-        <td class="muted">${esc(r.h3_index.slice(-7))}</td>
-        <td><span class="chip ${esc(r.quality_status)}">${esc(QSTATUS_LABELS[r.quality_status] || r.quality_status)}</span></td>
-        <td>${r.score != null ? Math.round(r.score*100)+'%' : '—'}</td>
-        <td>${(r.reasons || []).filter(x => x.severity !== 'info').map(x => `<span class="chip info" title="${esc(x.tip||'')}">${esc(x.label)}</span>`).join('') || '—'}</td>`;
-      body.append(tr);
-      const det = document.createElement('tr');
-      det.innerHTML = `<td colspan="8"><details><summary>Détail</summary>
-        <div class="muted" style="margin:6px 0">Raisons :</div>
-        <div>${(r.reasons || []).map(x => `<span class="chip info" title="${esc(x.tip||'')}">${esc(x.label)}</span>`).join('') || '—'}</div>
-        <div class="muted" style="margin:6px 0">Réponses :</div>
-        <ul style="margin:0 0 6px 16px">${(r.answers || []).map(a => `<li><b>${esc(a.question)}</b> : ${esc(a.answer)}</li>`).join('')}</ul>
-        ${(r.evidence || []).length ? `<div class="muted">Preuves :</div>
-          <div style="margin-top:4px">${r.evidence.map(e => `<button class="b s" onclick="openEvidence('${esc(e.id)}')">${esc(e.question)}</button>`).join(' ')}</div>` : ''}
-        <div class="muted" style="margin-top:6px">Pondération : ${r.weight} · GPS : ${Math.round(r.gps_accuracy_m)} m · Durée : ${r.duration_seconds}s</div>
-      </details></td>`;
-      body.append(det);
-    });
-  }
-  const size = +$('#rs-size').value;
-  $('#rs-count').textContent = `${S.responses.total} réponse(s) · ${S.responses.offset + 1}–${Math.min(S.responses.offset + size, S.responses.total)}`;
-  $('#rs-prev').disabled = S.responses.offset === 0;
-  $('#rs-next').disabled = S.responses.offset + size >= S.responses.total;
-  $('#rs-all').checked = false;
-  updateBulk();
-}
-
-$('#rs-all').onchange = e => {
-  S.responses.items.forEach(r => e.target.checked ? S.selected.add(r.id) : S.selected.delete(r.id));
-  $$('.rs-sel').forEach(c => c.checked = e.target.checked);
-  updateBulk();
-};
-$('#rs-rows').addEventListener('change', e => {
-  if (e.target.classList.contains('rs-sel')) {
-    e.target.checked ? S.selected.add(e.target.dataset.id) : S.selected.delete(e.target.dataset.id);
-    updateBulk();
-  }
-});
-function updateBulk() {
-  $('#rs-bulk').hidden = S.selected.size === 0;
-  $('#rs-bulk-count').textContent = `${S.selected.size} sélectionnée(s)`;
-}
-$('#rs-bulk-clear').onclick = () => {
-  S.selected.clear(); $$('.rs-sel').forEach(c => c.checked = false);
-  $('#rs-all').checked = false; updateBulk();
-};
-$('#rs-bulk-apply').onclick = async () => {
-  const reason = $('#rs-bulk-reason').value.trim();
-  if (reason.length < 3) { toast('Motif (3 caractères min.)'); return; }
-  try {
-    const r = await api('/survey-admin/responses/bulk', {method:'POST', body: {
-      ids: [...S.selected], status: $('#rs-bulk-status').value, reason}});
-    toast(`${r.updated} mise(s) à jour · ${r.skipped} ignorée(s)`);
-    loadResponses();
-  } catch (e) { toast(e.message); }
-};
-$('#rs-bulk-release').onclick = async () => {
-  try {
-    const r = await api('/survey-admin/responses/release', {method:'POST', body: {ids: [...S.selected]}});
-    toast(`${r.released} remise(s) en évaluation`);
-    loadResponses();
-  } catch (e) { toast(e.message); }
-};
-$('#rs-go').onclick = () => { S.responses.offset = 0; loadResponses(); };
-$('#rs-prev').onclick = () => { S.responses.offset = Math.max(0, S.responses.offset - +$('#rs-size').value); loadResponses(); };
-$('#rs-next').onclick = () => { S.responses.offset += +$('#rs-size').value; loadResponses(); };
-
-// Pièce jointe : fetch authentifié -> blob local
-window.openEvidence = async (id) => {
-  try {
-    const url = new URL(S.base + '/survey-admin/evidence/' + id + '/content');
-    const r = await fetch(url, {headers: {Authorization: 'Bearer ' + S.access}});
-    if (!r.ok) throw new Error('Preuve indisponible');
-    const blob = await r.blob();
-    const u = URL.createObjectURL(blob);
-    window.open(u, '_blank');
-    setTimeout(() => URL.revokeObjectURL(u), 60000);
-  } catch (e) { toast(e.message); }
-};
-
-// -------- Respondents
-async function loadRespondents() {
-  try {
-    const d = await api('/survey-admin/respondents');
-    $('#rd-personas').innerHTML = '<b>Répartition des personas</b><div style="margin-top:8px">' +
-      (Object.entries(d.personas || {}).map(([k,v]) => `<span class="chip info">${esc(k)} ${v}</span>`).join('') || '<span class="muted">Aucun.</span>') + '</div>';
-    $('#rd-rows').innerHTML = (d.lowest_trust || []).length
-      ? d.lowest_trust.map(u => `<tr>
-          <td>${esc(u.pseudonym)}</td>
-          <td>${Math.round(u.trust*100)}%</td>
-          <td>${esc(u.persona)}</td>
-          <td>${u.responses}</td>
-          <td>${u.trend > 0.03 ? '↑' : u.trend < -0.03 ? '↓' : '='}</td>
-          <td>${(u.flags || []).map(f => `<span class="chip info">${esc(f)}</span>`).join('') || '—'}</td>
-        </tr>`).join('')
-      : '<tr><td colspan="6" class="muted">Aucun répondant à faible confiance.</td></tr>';
-  } catch (e) {
-    $('#rd-personas').innerHTML = `<p class="muted">${esc(e.message)}</p>`;
-    $('#rd-rows').innerHTML = '';
-  }
-}
-
-// -------- Reference
-async function loadReferences() {
-  try {
-    const items = await api('/survey-admin/reference', {query: {indicator_key: $('#rf-filter').value}});
-    $('#rf-rows').innerHTML = items.length
-      ? items.map(r => `<tr>
-          <td>${esc(r.indicator_key)}</td>
-          <td>${esc(r.stat)}</td>
-          <td>${r.category ? esc(r.category) : '—'}</td>
-          <td>${r.value}</td>
-          <td>${r.scope_h3 ? esc(r.scope_h3) + (r.scope_res ? ' (r' + r.scope_res + ')' : '') : 'national'}</td>
-          <td>${r.period_year || '—'}</td>
-          <td>${esc(r.source)}</td>
-          <td><button class="b s" data-del="${esc(r.id)}">Supprimer</button></td>
-        </tr>`).join('')
-      : '<tr><td colspan="8" class="muted">Aucune référence.</td></tr>';
-    $$('[data-del]').forEach(b => b.onclick = async () => {
-      if (!confirm('Supprimer cette référence ?')) return;
-      try { await api('/survey-admin/reference/' + b.dataset.del, {method:'DELETE'}); loadReferences(); }
-      catch (e) { toast(e.message); }
-    });
-  } catch (e) { toast(e.message); }
-}
-
-$('#rf-refresh').onclick = loadReferences;
-$('#rf-filter').onchange = loadReferences;
-$('#rf-add').onclick = () => $('#rf-form').classList.toggle('hidden');
-$('#rf-cancel').onclick = () => $('#rf-form').classList.add('hidden');
-$('#rf-save').onclick = async () => {
-  const item = {
-    indicator_key: $('#rf-ind').value,
-    stat: $('#rf-stat').value,
-    category: $('#rf-cat').value.trim() || null,
-    value: +$('#rf-val').value,
-    scope_h3: $('#rf-h3').value.trim() || null,
-    scope_res: $('#rf-res').value ? +$('#rf-res').value : null,
-    period_year: $('#rf-year').value ? +$('#rf-year').value : null,
-    source: $('#rf-src').value.trim(),
-  };
-  if (!item.source || isNaN(item.value)) { toast('Valeur et source obligatoires'); return; }
-  try {
-    await api('/survey-admin/reference', {method:'POST', body: {items: [item]}});
-    toast('Référence ajoutée'); $('#rf-form').classList.add('hidden'); loadReferences();
-  } catch (e) { toast(e.message); }
-};
-
-// -------- Catalog (lecture seule)
-function renderCatalog() {
-  if (!S.catalog) return;
-  $('#cat-body').innerHTML = S.catalog.domains.map(d => `
-    <details style="margin-bottom:8px">
-      <summary>${esc(d.label)}</summary>
-      <p class="muted">${esc(d.summary)}</p>
-      <table>
-        <thead><tr><th>Indicateur</th><th>Type</th><th>Unité</th></tr></thead>
-        <tbody>${d.indicators.map(i => `<tr>
-          <td>${esc(i.label)} <span class="muted">(${esc(i.key)})</span></td>
-          <td>${esc(i.kind)}</td>
-          <td>${esc(i.unit)}</td>
-        </tr>`).join('')}</tbody>
-      </table>
-    </details>`).join('');
-}
-
-if (S.access) start().catch(() => logout());
-</script>
-</body>
-</html>
+boot({page:'surveys',roles:['tenant_admin','analyst'],ready:init});
+const S={cat:null,surveys:[],resp:{items:[],total:0,off:0},sel:new Set()};let E=null;const IND={};
+const isAdmin=()=>A.me.role==='tenant_admin';
+const UNITS=[['household','Ménage'],['person','Personne'],['dwelling','Logement'],['enterprise','Entreprise'],['farm','Exploitation agricole'],['facility','Établissement (école, centre de santé…)'],['community','Communauté / quartier']];
+const STL={draft:'Brouillon',active:'Active',paused:'En pause',closed:'Fermée'};
+const QSL={pending:'En évaluation',validated:'Validée',indicative:'Indicative',rejected:'Rejetée'};
+const MODE={profile:'Profil',mixed:'Mixte',direct:'Direct'};const ORG={deterministic:'Automatique',cluster:'Réponses réelles',ai:'IA',admin:'Admin'};
+const toLoc=iso=>{if(!iso)return'';const d=new Date(iso),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
+async function init(){S.cat=await api('/datamap/catalog');S.cat.domains.forEach(d=>d.indicators.forEach(i=>IND[i.key]=i));
+ $('#main').innerHTML=`<div id="v-list"></div><div id="v-edit" hidden></div>`;list()}
+// ================= liste + onglets
+function list(){E=null;$('#v-edit').hidden=true;const v=$('#v-list');v.hidden=false;
+ v.innerHTML=`<h2>Enquêtes</h2><div class="sub">Cartographie participative de la société : choisissez des thèmes, la plateforme gère le reste.</div>
+ <div class="tabs">${[['sv','Mes enquêtes'],['rs','Réponses à vérifier'],['rd','Répondants'],['rf','Valeurs de référence'],['ct','Catalogue']].map(([k,l],i)=>`<button class="${i?'':'on'}" data-t="${k}">${l}</button>`).join('')}</div><div id="tab"></div>`;
+ $$('.tabs button',v).forEach(b=>b.onclick=()=>{$$('.tabs button',v).forEach(x=>x.classList.toggle('on',x===b));({sv:tSv,rs:tRs,rd:tRd,rf:tRf,ct:tCt})[b.dataset.t]()});tSv()}
+async function tSv(){const el=$('#tab');el.innerHTML='<div class="empty">Chargement…</div>';
+ try{S.surveys=await api('/survey-admin/surveys')}catch(e){return toast(e.message,1)}
+ const n=k=>S.surveys.filter(s=>s.status===k).length;
+ el.innerHTML=`<div class="kpis">${kpi('Enquêtes',S.surveys.length)}${kpi('Actives',n('active'))}${kpi('Réponses',S.surveys.reduce((a,s)=>a+s.responses,0))}</div>
+ <div class="row" style="margin:14px 0">${isAdmin()?'<button class="btn" id="new">＋ Nouvelle enquête</button>':''}<div class="sp"></div><select id="fs" style="width:auto"><option value="">Tous les statuts</option>${Object.entries(STL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+ <div class="g3" id="cards"></div>`;
+ const draw=()=>{const f=$('#fs').value;$('#cards').innerHTML=S.surveys.filter(s=>!f||s.status===f).map(s=>{const d=S.cat.domains.find(x=>x.key===s.domain);return `<div class="card hov" data-id="${s.id}" style="border-top:4px solid ${d?.color||'var(--pr)'}"><span class="chip ${s.status}">${STL[s.status]}</span><span class="chip">${esc(d?.label||s.domain)}</span><h3 style="margin:8px 0 2px">${esc(s.title)}</h3><div class="sub">${esc((s.description||'').slice(0,110))}</div><div style="margin-top:8px"><b>${s.responses}</b> <span class="sub">réponse(s) · version ${s.version}</span></div></div>`}).join('')||'<div class="empty">Aucune enquête.</div>'};
+ draw();$('#fs').onchange=draw;$('#cards').onclick=e=>{const c=e.target.closest('[data-id]');if(c)edit(c.dataset.id)};if($('#new'))$('#new').onclick=()=>edit(null)}
+// ================= éditeur (sans JSON)
+const domInds=dom=>{const d=S.cat.domains.find(x=>x.key===dom);const base=S.cat.domains.find(x=>x.key==='demographie').indicators.filter(i=>i.key==='household_persons');return [...d.indicators,...(dom==='demographie'?[]:base)]};
+const kindOf=i=>i.kind==='number'?'number':i.kind==='share'?'yes_no':i.kind==='scale'?'scale':(i.multi?'multi_choice':'single_choice');
+async function edit(id){let s=null;if(id){try{s=await api('/survey-admin/surveys/'+id)}catch(e){return toast(e.message,1)}}
+ E=s?{...s,defn:clone(s.definition),_new:false}:{_new:true,domain:S.cat.domains[0].key,title:'',description:'',cooldown_days:30,target_responses:0,starts_at:null,ends_at:null,allow_sensitive_axes:false,status:'draft',defn:{unit:'household',slots:[{key:'rubrique_1',label:'Rubrique 1',help:null,multi:false,allow_none:true,mode:'profile'}],questions:[],rules:[],dimensions:[]}};
+ E._tab='gen';$('#v-list').hidden=true;const v=$('#v-edit');v.hidden=false;editor()}
+function editor(){const v=$('#v-edit'),n=E._new;
+ const tabs=[['gen','Général'],['q','Questions'],...(n?[]:[['pf','Profils proposés'],['st','Statistiques'],['ev','Historique des profils']])];
+ v.innerHTML=`<div class="row"><button class="btn gh sm" id="back">← Toutes les enquêtes</button></div><div class="row" style="margin:8px 0"><div class="sp"><h2>${esc(E.title||'Nouvelle enquête')}</h2><div class="sub">${n?'Choisissez le thème puis les questions à poser.':'Version '+E.version+' · '+E.responses+' réponse(s)'}</div></div>${n?'':`<span class="chip ${E.status}">${STL[E.status]}</span>${isAdmin()?statusBtns():''}`}</div>
+ <div class="tabs">${tabs.map(([k,l])=>`<button class="${E._tab===k?'on':''}" data-t="${k}">${l}</button>`).join('')}</div><div id="ed"></div>
+ ${isAdmin()&&['gen','q'].includes(E._tab)?`<div class="bulk"><span class="sub sp">${n?'Étape '+(E._tab==='gen'?'1':'2')+' sur 2':'Modifications non enregistrées ?'}</span>${n&&E._tab==='gen'?'<button class="btn" id="nx">Suivant : questions →</button>':`<button class="btn" id="save">${n?'Créer l\'enquête':'Enregistrer'}</button>`}</div>`:''}`;
+ $('#back').onclick=list;$$('.tabs button',v).forEach(b=>b.onclick=()=>{E._tab=b.dataset.t;editor()});
+ const body=({gen:eGen,q:eQ,pf:ePf,st:eSt,ev:eEv})[E._tab];body($('#ed'));
+ if($('#save'))$('#save').onclick=save;if($('#nx'))$('#nx').onclick=()=>{E._tab='q';editor()};
+ $$('[data-sb]',v).forEach(b=>b.onclick=()=>setStatus(b.dataset.sb))}
+const statusBtns=()=>({draft:[['active','Activer','ok']],active:[['paused','Mettre en pause','wa'],['closed','Fermer','er']],paused:[['active','Reprendre','ok'],['closed','Fermer','er']],closed:[['active','Rouvrir','ok']]})[E.status].map(([k,l,c])=>`<button class="btn ${c}" data-sb="${k}">${l}</button>`).join('');
+async function setStatus(st){try{const r=await api(`/survey-admin/surveys/${E.id}/status`,{method:'POST',body:{status:st,use_ai:false}});toast('Statut mis à jour'+(r.profiles_created?' · '+r.profiles_created+' profil(s) créé(s)':''));edit(E.id)}catch(e){toast(e.message,1)}}
+function eGen(el){const d=S.cat.domains;
+ el.innerHTML=`<div class="card"><h3>Informations</h3><div class="g2"><label class="f">Thème de l'enquête<select id="g-dom" ${E._new?'':'disabled'}>${d.map(x=>`<option value="${x.key}" ${x.key===E.domain?'selected':''}>${esc(x.label)}</option>`).join('')}</select></label><label class="f">Qui répond ?<select id="g-unit">${UNITS.map(([k,l])=>`<option value="${k}" ${E.defn.unit===k?'selected':''}>${l}</option>`).join('')}</select></label></div>
+ <label class="f" style="margin-top:10px">Titre<input id="g-title" maxlength="160" value="${esc(E.title)}"></label><label class="f" style="margin-top:10px">Description<textarea id="g-desc" maxlength="1500">${esc(E.description||'')}</textarea></label>
+ <div class="g4" style="margin-top:10px"><label class="f">Délai avant de repondre à nouveau (jours)<input id="g-cd" type="number" min="0" max="365" value="${E.cooldown_days}"></label><label class="f">Objectif de réponses<input id="g-tg" type="number" min="0" value="${E.target_responses}"></label><label class="f">Début<input id="g-s" type="datetime-local" value="${toLoc(E.starts_at)}"></label><label class="f">Fin<input id="g-e" type="datetime-local" value="${toLoc(E.ends_at)}"></label></div>
+ <label class="ck" style="margin-top:10px"><input type="checkbox" id="g-sens" ${E.allow_sensitive_axes?'checked':''}>Autoriser les profils sensibles (ethnie, religion, opinion politique)</label></div>
+ ${E._new?`<div class="card"><h3>Gagner du temps avec l'IA</h3><div class="sub">Décrivez votre objectif : l'IA propose des questions du catalogue (à relire).</div><div class="row" style="margin-top:8px"><label class="f sp">Objectif<input id="ai-goal" maxlength="500" placeholder="Ex : mesurer l'accès à l'eau potable dans les quartiers"></label><label class="f">Questions max<input id="ai-max" type="number" min="3" max="60" value="12" style="width:100px"></label><button class="btn sec" id="ai-go">Générer un brouillon</button></div></div>`:''}`;
+ const bind=(id,f)=>{const x=$(id);x&&(x.oninput=x.onchange=e=>f(e.target))};
+ bind('#g-dom',x=>{if(E.defn.questions.length&&!confirm('Changer de thème efface les questions choisies. Continuer ?')){x.value=E.domain;return}E.domain=x.value;E.defn.questions=[]});bind('#g-unit',x=>E.defn.unit=x.value);
+ bind('#g-title',x=>E.title=x.value);bind('#g-desc',x=>E.description=x.value);bind('#g-cd',x=>E.cooldown_days=+x.value);bind('#g-tg',x=>E.target_responses=+x.value);
+ bind('#g-s',x=>E.starts_at=x.value?new Date(x.value).toISOString():null);bind('#g-e',x=>E.ends_at=x.value?new Date(x.value).toISOString():null);bind('#g-sens',x=>E.allow_sensitive_axes=x.checked);
+ if($('#ai-go'))$('#ai-go').onclick=async()=>{const g=$('#ai-goal').value.trim();if(g.length<5)return toast('Décrivez votre objectif (5 caractères min.)',1);
+  try{const r=await api('/survey-admin/surveys/design',{method:'POST',body:{domain:E.domain,goal:g,indicators:[],unit:E.defn.unit,max_questions:+$('#ai-max').value}});E.title=r.title;E.description=r.description;E.defn=r.definition;E.defn.rules=E.defn.rules||[];toast('Brouillon généré : relisez les questions.');E._tab='q';editor()}catch(e){toast(e.message,1)}}}
+function eQ(el){const D=E.defn,inds=domInds(E.domain),used=new Set(D.questions.map(q=>q.indicator));
+ const evalL={none:'Pas de photo',optional:'Photo facultative',required:'Photo obligatoire'};
+ const qRow=q=>{const i=IND[q.indicator];return `<div class="blk"><div class="row"><label class="f sp">${esc(i.label)}<input data-q="${q.key}" data-f="text" value="${esc(q.text)}"></label><label class="ck"><input type="checkbox" data-q="${q.key}" data-f="required" ${q.required!==false?'checked':''}>Obligatoire</label><label class="f">Rubrique<select data-q="${q.key}" data-f="slot">${D.slots.map(s=>`<option value="${s.key}" ${s.key===q.slot?'selected':''}>${esc(s.label)}</option>`).join('')}</select></label><button class="btn er sm" data-rm="${q.key}">Retirer</button></div>
+  <details><summary>Options</summary><div class="g4" style="margin-top:8px"><label class="ck"><input type="checkbox" data-q="${q.key}" data-f="axis" ${q.axis?'checked':''}>Sert à décrire le profil de la personne</label><label class="f">Photo<select data-q="${q.key}" data-f="evidence">${Object.entries(evalL).map(([k,l])=>`<option value="${k}" ${(q.evidence||'none')===k?'selected':''}>${l}</option>`).join('')}</select></label>
+  ${q.evidence&&q.evidence!=='none'?`<label class="f">Consigne photo<input data-q="${q.key}" data-f="evidence_hint" value="${esc(q.evidence_hint||'')}" placeholder="Ex : photo de la façade"></label>`:''}
+  ${q.kind==='number'?`<label class="f">Valeur minimale<input type="number" step="any" data-q="${q.key}" data-f="min" value="${q.min??''}" placeholder="${i.lo}"></label><label class="f">Valeur maximale<input type="number" step="any" data-q="${q.key}" data-f="max" value="${q.max??''}" placeholder="${i.hi}"></label>`:''}</div>
+  ${i.kind==='category'?`<div class="sub" style="margin-top:8px">Réponses proposées (2 minimum)</div><div class="chks">${i.categories.map(c=>`<label class="ck"><input type="checkbox" data-q="${q.key}" data-f="opt" data-v="${c.code}" ${(q.options||[]).length?(q.options.some(o=>o.value===c.code)?'checked':''):'checked'}>${esc(c.label)}</label>`).join('')}</div>`:''}</details></div>`};
+ el.innerHTML=`<div class="g2" style="align-items:start"><div><div class="card" style="margin-top:0"><h3>Indicateurs disponibles</h3><div class="sub">Cochez ce que vous voulez demander.</div><div style="max-height:480px;overflow:auto;margin-top:8px">${inds.map(i=>`<label class="ck" style="padding:4px 0"><input type="checkbox" data-ind="${i.key}" ${used.has(i.key)?'checked':''}>${esc(i.label)}${i.sensitive?' <span class="chip">sensible</span>':''}</label>`).join('')}</div></div></div>
+ <div><div class="card" style="margin-top:0"><div class="row"><h3 class="sp" style="margin:0">Rubriques et questions</h3><button class="btn sec sm" id="sl-add">＋ Rubrique</button></div>
+ ${D.slots.map(s=>{const qs=D.questions.filter(q=>q.slot===s.key);return `<div class="page-box"><div class="row"><label class="f sp">Nom de la rubrique<input data-s="${s.key}" data-f="label" value="${esc(s.label)}"></label><label class="f">Réponse<select data-s="${s.key}" data-f="mode"><option value="profile" ${s.mode==='profile'?'selected':''}>Choix d'un profil</option><option value="direct" ${s.mode==='direct'?'selected':''}>Saisie directe</option></select></label>${s.mode==='profile'?`<label class="ck"><input type="checkbox" data-s="${s.key}" data-f="multi" ${s.multi?'checked':''}>Plusieurs profils possibles</label>`:''}<label class="ck"><input type="checkbox" data-s="${s.key}" data-f="allow_none" ${s.allow_none?'checked':''}>« Aucun ne me correspond »</label>${D.slots.length>1&&!qs.length?`<button class="btn er sm" data-sd="${s.key}">Supprimer</button>`:''}</div>${qs.map(qRow).join('')||'<div class="empty">Cochez des indicateurs à gauche.</div>'}</div>`}).join('')}
+ ${D.rules?.length?`<div class="sub">${D.rules.length} règle(s) de cohérence existante(s) conservée(s). Les règles de base (totaux, etc.) restent appliquées automatiquement.</div>`:''}</div></div></div>`;
+ const Qf=k=>D.questions.find(q=>q.key===k),Sf=k=>D.slots.find(s=>s.key===k);
+ $$('[data-ind]',el).forEach(c=>c.onchange=()=>{const i=IND[c.dataset.ind];if(c.checked)D.questions.push({key:i.key,slot:D.slots[0].key,text:i.label,kind:kindOf(i),indicator:i.key,required:true});else D.questions=D.questions.filter(q=>q.key!==i.key);eQ(el)});
+ $$('[data-rm]',el).forEach(b=>b.onclick=()=>{D.questions=D.questions.filter(q=>q.key!==b.dataset.rm);eQ(el)});
+ $$('[data-q]',el).forEach(x=>x.onchange=()=>{const q=Qf(x.dataset.q),f=x.dataset.f;
+  if(f==='required')q.required=x.checked;else if(f==='axis'){x.checked?q.axis=q.indicator:delete q.axis}
+  else if(f==='opt'){const all=$$(`[data-q="${q.key}"][data-f="opt"]:checked`,el).map(c=>({value:c.dataset.v}));if(all.length<2){x.checked=true;return toast('Gardez au moins 2 réponses',1)}q.options=all}
+  else if(f==='min'||f==='max'){x.value===''?delete q[f]:q[f]=+x.value}else if(f==='evidence'){q.evidence=x.value;eQ(el);return}else q[f]=x.value;if(f==='slot')eQ(el)});
+ $$('[data-s]',el).forEach(x=>x.onchange=()=>{const s=Sf(x.dataset.s),f=x.dataset.f;s[f]=x.type==='checkbox'?x.checked:x.value;if(f==='mode')eQ(el)});
+ $$('[data-sd]',el).forEach(b=>b.onclick=()=>{D.slots=D.slots.filter(s=>s.key!==b.dataset.sd);eQ(el)});
+ $('#sl-add').onclick=()=>{let n=D.slots.length+1,k;do{k='rubrique_'+n++}while(D.slots.some(s=>s.key===k));D.slots.push({key:k,label:'Rubrique '+(n-1),help:null,multi:false,allow_none:true,mode:'profile'});eQ(el)}}
+async function save(){const D=E.defn;if(!E.title||E.title.trim().length<3)return toast('Donnez un titre à l\'enquête (3 caractères min.)',1);if(!D.questions.length)return toast('Choisissez au moins une question',1);
+ const used=new Set(D.questions.map(q=>q.slot));D.slots=D.slots.filter(s=>used.has(s.key));D.dimensions=[...new Set([...(D.dimensions||[]),...D.questions.filter(q=>q.axis).map(q=>q.axis)])];
+ const b={title:E.title.trim(),description:E.description||null,definition:D,cooldown_days:E.cooldown_days,target_responses:E.target_responses,starts_at:E.starts_at,ends_at:E.ends_at,allow_sensitive_axes:E.allow_sensitive_axes};
+ try{if(E._new){const r=await api('/survey-admin/surveys',{method:'POST',body:{...b,domain:E.domain}});toast('Enquête créée. Activez-la quand vous êtes prêt.');edit(r.id)}else{const r=await api('/survey-admin/surveys/'+E.id,{method:'PATCH',body:b});toast('Enregistré'+(r.definition_changed?' (version '+r.version+')':''));edit(E.id)}}catch(e){toast(e.message,1)}}
+// ================= profils (formulaire, sans JSON)
+function ansForm(slot){return E.defn.questions.filter(q=>q.slot===slot).map(q=>{const i=IND[q.indicator],id='af-'+q.key;let c;
+ if(q.kind==='number')c=`<input type="number" step="any" id="${id}" min="${q.min??i.lo}" max="${q.max??i.hi}">`;
+ else if(q.kind==='scale')c=`<select id="${id}">${[1,2,3,4,5].map(n=>`<option>${n}</option>`).join('')}</select>`;
+ else if(q.kind==='yes_no')c=`<select id="${id}"><option value="true">Oui</option><option value="false">Non</option></select>`;
+ else if(q.kind==='single_choice')c=`<select id="${id}">${(q.options||[]).map(o=>`<option value="${esc(o.value)}">${esc(o.label||o.value)}</option>`).join('')}</select>`;
+ else c=`<div class="chks" id="${id}">${(q.options||[]).map(o=>`<label class="ck"><input type="checkbox" value="${esc(o.value)}">${esc(o.label||o.value)}</label>`).join('')}</div>`;
+ return `<label class="f">${esc(q.short||q.text)}${c}</label>`}).join('')}
+function readAns(slot){const a={};for(const q of E.defn.questions.filter(q=>q.slot===slot)){const el=$('#af-'+q.key);
+ if(q.kind==='number'){if(el.value==='')throw new Error('Renseignez : '+q.text);a[q.key]=+el.value}else if(q.kind==='scale')a[q.key]=+el.value;else if(q.kind==='yes_no')a[q.key]=el.value==='true';else if(q.kind==='single_choice')a[q.key]=el.value;
+ else{const v=$$('input:checked',el).map(c=>c.value);if(!v.length)throw new Error('Choisissez au moins une réponse : '+q.text);a[q.key]=v}}return a}
+async function ePf(el){el.innerHTML='<div class="empty">Chargement…</div>';
+ try{const profs=await api(`/survey-admin/surveys/${E.id}/profiles`);const slots=E.defn.slots.filter(s=>s.mode==='profile');
+  if(!slots.length){el.innerHTML='<div class="empty">Aucune rubrique en « choix d\'un profil ».</div>';return}
+  const by={};profs.forEach(p=>(by[p.slot]=by[p.slot]||[]).push(p));
+  el.innerHTML=`<div class="card"><div class="sub">Un profil est un ensemble de réponses cohérentes qu'une personne reconnaît comme les siennes. Ils évoluent avec les vrais choix des répondants.</div>${isAdmin()?`<div class="row" style="margin-top:8px"><select id="pf-slot" style="width:auto">${slots.map(s=>`<option value="${s.key}">${esc(s.label)}</option>`).join('')}</select><label class="ck"><input type="checkbox" id="pf-ai">Avec l'IA</label><button class="btn" id="pf-gen">Générer des profils</button><button class="btn sec" id="pf-ev">Faire évoluer maintenant</button><button class="btn sec" id="pf-add">Créer un profil à la main</button></div><div id="pf-form"></div>`:''}</div>
+  ${slots.map(s=>`<div class="card tw" style="padding:0"><div style="padding:14px"><h3 style="margin:0">${esc(s.label)}</h3></div><table><thead><tr><th>Profil</th><th>Origine</th><th>État</th><th>Affiché</th><th>Choisi</th><th>Part des choix</th><th></th></tr></thead><tbody>${(by[s.key]||[]).map(p=>`<tr><td><b>${esc(p.label)}</b><div class="sub">${(p.summary||[]).map(x=>esc(x.answer)).join(' · ')}</div></td><td><span class="chip">${ORG[p.origin]||p.origin}</span></td><td><span class="chip ${p.status==='active'?'active':'closed'}">${p.status==='active'?'Actif':'Retiré'}</span></td><td>${p.shown}</td><td>${p.picked}</td><td>${p.share_of_picks!=null?Math.round(p.share_of_picks*100)+' %':'—'}</td><td style="white-space:nowrap">${isAdmin()?`<button class="btn sec sm" data-pin="${p.id}" data-v="${p.pinned}">${p.pinned?'Détacher':'Épingler'}</button> <button class="btn sec sm" data-ret="${p.id}" data-st="${p.status}">${p.status==='active'?'Retirer':'Réactiver'}</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="empty">Aucun profil.</td></tr>'}</tbody></table></div>`).join('')}`;
+  $$('[data-pin]',el).forEach(b=>b.onclick=async()=>{try{await api('/survey-admin/profiles/'+b.dataset.pin,{method:'PATCH',body:{pinned:b.dataset.v!=='true'}});ePf(el)}catch(e){toast(e.message,1)}});
+  $$('[data-ret]',el).forEach(b=>b.onclick=async()=>{try{await api('/survey-admin/profiles/'+b.dataset.ret,{method:'PATCH',body:{retire:b.dataset.st==='active'}});ePf(el)}catch(e){toast(e.message,1)}});
+  if(!isAdmin())return;
+  $('#pf-gen').onclick=async()=>{try{const r=await api(`/survey-admin/surveys/${E.id}/profiles/generate`,{method:'POST',body:{slot:$('#pf-slot').value,n:null,use_ai:$('#pf-ai').checked}});toast(r.added+' profil(s) ajouté(s)');ePf(el)}catch(e){toast(e.message,1)}};
+  $('#pf-ev').onclick=async()=>{try{const r=await api(`/survey-admin/surveys/${E.id}/evolve`,{method:'POST',body:{use_ai:$('#pf-ai').checked}});toast('Génération '+r.generation+' créée');ePf(el)}catch(e){toast(e.message,1)}};
+  $('#pf-add').onclick=()=>{const sl=$('#pf-slot').value;$('#pf-form').innerHTML=`<div class="sub-card"><div class="g2"><label class="f">Nom du profil<input id="pn" maxlength="120"></label><label class="f">Description (facultatif)<input id="pd" maxlength="300"></label></div><div class="g2" style="margin-top:8px">${ansForm(sl)}</div><button class="btn" id="ps" style="margin-top:10px">Créer le profil</button></div>`;
+   $('#ps').onclick=async()=>{try{const a=readAns(sl);await api(`/survey-admin/surveys/${E.id}/profiles`,{method:'POST',body:{slot:sl,label:$('#pn').value.trim(),description:$('#pd').value.trim()||null,answers:a}});toast('Profil créé');ePf(el)}catch(e){toast(e.message,1)}}}
+ }catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+async function eSt(el){el.innerHTML='<div class="empty">Chargement…</div>';
+ try{const st=await api(`/survey-admin/surveys/${E.id}/stats`,{query:{days:30}});const col={validated:'#16a34a',indicative:'#d97706',rejected:'#dc2626',pending:'#64748b'};
+  el.innerHTML=`<div class="kpis">${kpi('Réponses',st.total)}${kpi('Contributeurs',st.contributors)}${kpi('Zones couvertes',st.cells_covered)}${st.progress!=null?kpi('Objectif atteint',Math.round(st.progress*100)+' %'):''}${kpi('Génération de profils',st.profile_generation)}</div>
+  <div class="g2"><div class="card"><h3>Qualité des réponses</h3>${Ch.donut(Object.entries(st.by_status).map(([k,v])=>({l:QSL[k],v})))}</div><div class="card"><h3>Mode de réponse</h3>${Ch.donut(Object.entries(st.modes).map(([k,v])=>({l:MODE[k]||k,v})))}</div></div>
+  <div class="card"><h3>Réponses par jour</h3>${st.days.length?Ch.line([{name:'Réponses',v:st.days.map(d=>d.pending+d.validated+d.indicative+d.rejected)}],st.days.map(d=>d.date.slice(5))):'<div class="empty">Aucune donnée</div>'}</div>
+  <div class="g2"><div class="card"><h3>Raisons les plus fréquentes</h3>${Ch.bars(st.top_reasons.map(r=>({l:r.label,v:r.n})))}</div><div class="card"><h3>« Aucun profil ne me correspond »</h3>${Ch.bars(Object.entries(st.none_rate_by_slot).map(([k,v])=>({l:(E.defn.slots.find(s=>s.key===k)||{}).label||k,v:Math.round(v*100)})))}<div class="sub">En % des réponses.</div></div></div>`}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+async function eEv(el){try{const ev=await api(`/survey-admin/surveys/${E.id}/profile-events`);
+ el.innerHTML=ev.map(e=>`<div class="card"><div class="row"><b class="sp">Génération ${e.generation}</b><span class="sub">${fd(e.at)}</span></div><div class="sub">${e.method==='ai+data'?'IA et réponses réelles':'Réponses réelles'} · <span class="up">+${e.added} ajoutés</span> · <span class="down">−${e.retired} retirés</span></div>${Object.entries(e.details?.slots||{}).map(([k,s])=>`<div style="margin-top:6px"><b>${esc((E.defn.slots.find(x=>x.key===k)||{}).label||k)}</b> <span class="sub">· « aucun ne correspond » : ${Math.round((s.none_rate||0)*100)} %</span>${s.added.map(a=>`<div class="up">+ ${esc(a.label)}</div>`).join('')}${s.retired.map(a=>`<div class="down">− ${esc(a)}</div>`).join('')}</div>`).join('')}</div>`).join('')||'<div class="empty">Aucun événement.</div>'}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+// ================= réponses
+async function tRs(){const el=$('#tab');
+ el.innerHTML=`<div class="card"><div class="row"><label class="f">Enquête<select id="r-sv"><option value="">Toutes</option>${S.surveys.map(s=>`<option value="${s.id}">${esc(s.title)}</option>`).join('')}</select></label><div class="pills" id="r-st">${Object.entries(QSL).map(([k,v])=>`<button class="pill ${k!=='validated'?'on':''}" data-st="${k}">${v}</button>`).join('')}</div><div class="sp"></div><label class="f">Décision<select id="r-ev"><option value="">Toutes</option><option value="auto">Automatique</option><option value="admin">Admin</option></select></label><label class="f">Par page<select id="r-sz"><option>25</option><option selected>50</option><option>100</option></select></label><button class="btn" id="r-go">Filtrer</button></div></div>
+ <div class="card tw" style="padding:0"><table><thead><tr><th><input type="checkbox" id="r-all"></th><th>Date</th><th>Enquête</th><th>Mode</th><th>Statut</th><th>Fiabilité</th><th>Raisons</th></tr></thead><tbody id="r-rows"></tbody></table></div>
+ <div class="row" style="margin-top:10px"><span id="r-ct" class="sub sp"></span><button class="btn sec sm" id="r-pv">←</button><button class="btn sec sm" id="r-nx">→</button></div>
+ <div class="bulk" id="r-bulk" hidden><b id="r-bc"></b><select id="r-bs" style="width:auto"><option value="validated">Valider</option><option value="indicative">Indicative</option><option value="rejected">Rejeter</option></select><input id="r-br" placeholder="Motif (3 caractères min.)" style="flex:1;min-width:200px"><button class="btn" id="r-ba">Appliquer</button><button class="btn sec" id="r-brl">Remettre en automatique</button></div>`;
+ S.resp.off=0;S.sel.clear();const st=()=>$$('#r-st .on').map(b=>b.dataset.st);
+ $('#r-st').onclick=e=>e.target.dataset.st&&e.target.classList.toggle('on');
+ const ld=async()=>{try{const d=await api('/survey-admin/responses',{query:{survey_id:$('#r-sv').value,status:st(),evaluator:$('#r-ev').value,limit:$('#r-sz').value,offset:S.resp.off}});S.resp.items=d.items;S.resp.total=d.total;S.sel.clear();rrows()}catch(e){toast(e.message,1)}};
+ const bulk=()=>{$('#r-bulk').hidden=!isAdmin()||!S.sel.size;$('#r-bc').textContent=S.sel.size+' sélectionnée(s)'};
+ function rrows(){const sz=+$('#r-sz').value;$('#r-rows').innerHTML=S.resp.items.map(r=>`<tr><td><input type="checkbox" class="rs" data-id="${r.id}"></td><td>${fd(r.submitted_at)}</td><td>${esc(r.survey)}</td><td><span class="chip">${MODE[r.mode]||r.mode}</span></td><td><span class="chip ${r.quality_status}">${QSL[r.quality_status]}</span></td><td>${r.score!=null?Math.round(r.score*100)+' %':'—'}</td><td>${(r.reasons||[]).filter(x=>x.severity!=='info').map(x=>`<span class="chip" title="${esc(x.tip||'')}">${esc(x.label)}</span>`).join('')||'—'}</td></tr>
+  <tr><td colspan="7"><details><summary>Détail</summary><ul style="margin:6px 0 6px 16px">${(r.answers||[]).map(a=>`<li><b>${esc(a.question)}</b> : ${esc(a.answer)}</li>`).join('')}</ul>${(r.evidence||[]).map(e=>`<button class="btn sec sm" data-ev="${e.id}">Photo : ${esc(e.question)}</button> `).join('')}<div class="sub">GPS ${Math.round(r.gps_accuracy_m)} m · ${r.duration_seconds}s · pondération ${r.weight}</div></details></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Aucune réponse.</td></tr>';
+  $('#r-ct').textContent=`${S.resp.total} réponse(s) · ${Math.min(S.resp.off+1,S.resp.total)}–${Math.min(S.resp.off+sz,S.resp.total)}`;$('#r-pv').disabled=!S.resp.off;$('#r-nx').disabled=S.resp.off+sz>=S.resp.total;bulk()}
+ $('#r-rows').onchange=e=>{if(e.target.classList.contains('rs')){e.target.checked?S.sel.add(e.target.dataset.id):S.sel.delete(e.target.dataset.id);bulk()}};
+ $('#r-rows').onclick=async e=>{const id=e.target.dataset.ev;if(!id)return;try{const r=await raw('/survey-admin/evidence/'+id+'/content');if(!r.ok)throw new Error('Photo indisponible');const u=URL.createObjectURL(await r.blob());window.open(u,'_blank');setTimeout(()=>URL.revokeObjectURL(u),60000)}catch(x){toast(x.message,1)}};
+ $('#r-all').onchange=e=>{S.resp.items.forEach(r=>e.target.checked?S.sel.add(r.id):S.sel.delete(r.id));$$('.rs').forEach(c=>c.checked=e.target.checked);bulk()};
+ $('#r-go').onclick=()=>{S.resp.off=0;ld()};$('#r-pv').onclick=()=>{S.resp.off=Math.max(0,S.resp.off-+$('#r-sz').value);ld()};$('#r-nx').onclick=()=>{S.resp.off+=+$('#r-sz').value;ld()};
+ $('#r-ba').onclick=async()=>{const r=$('#r-br').value.trim();if(r.length<3)return toast('Motif (3 caractères min.)',1);try{const x=await api('/survey-admin/responses/bulk',{method:'POST',body:{ids:[...S.sel],status:$('#r-bs').value,reason:r}});toast(x.updated+' mise(s) à jour');ld()}catch(e){toast(e.message,1)}};
+ $('#r-brl').onclick=async()=>{try{const x=await api('/survey-admin/responses/release',{method:'POST',body:{ids:[...S.sel]}});toast(x.released+' remise(s) en évaluation');ld()}catch(e){toast(e.message,1)}};ld()}
+async function tRd(){const el=$('#tab');try{const d=await api('/survey-admin/respondents');el.innerHTML=`<div class="g2"><div class="card"><h3>Profils de comportement</h3>${Ch.donut(Object.entries(d.personas||{}).map(([k,v])=>({l:k,v})))}</div><div class="card"><h3>À savoir</h3><div class="sub">Le score mesure l'incohérence et l'écart aux tendances, pas l'honnêteté. Seuls les 90 derniers jours comptent.</div></div></div>
+ <div class="card tw" style="padding:0"><div style="padding:14px"><h3 style="margin:0">Confiance la plus faible</h3></div><table><thead><tr><th>Pseudo</th><th>Confiance</th><th>Profil</th><th>Réponses</th><th>Tendance</th><th>Signaux</th></tr></thead><tbody>${(d.lowest_trust||[]).map(u=>`<tr><td>${esc(u.pseudonym)}</td><td>${Math.round(u.trust*100)} %</td><td>${esc(u.persona)}</td><td>${u.responses}</td><td>${u.trend>.03?'↑':u.trend<-.03?'↓':'='}</td><td>${(u.flags||[]).map(f=>`<span class="chip">${esc(f)}</span>`).join('')||'—'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Aucun répondant à faible confiance.</td></tr>'}</tbody></table></div>`}catch(e){el.innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+// ================= références
+async function tRf(){const el=$('#tab');
+ const opts=S.cat.domains.map(d=>`<optgroup label="${esc(d.label)}">${d.indicators.filter(i=>['number','scale','share','category'].includes(i.kind)).map(i=>`<option value="${i.key}">${esc(i.label)}</option>`).join('')}</optgroup>`).join('');
+ el.innerHTML=`<div class="card"><div class="sub">Valeurs officielles (recensement, enquête nationale…) utilisées pour contrôler et comparer les réponses. Rien n'est inventé : seules les valeurs que vous saisissez sont utilisées.</div>${isAdmin()?`<button class="btn" id="rf-add" style="margin-top:8px">＋ Ajouter une valeur</button>`:''}</div><div class="card tw" style="padding:0"><table><thead><tr><th>Indicateur</th><th>Valeur</th><th>Périmètre</th><th>Année</th><th>Source</th><th></th></tr></thead><tbody id="rf-rows"></tbody></table></div>`;
+ const ld=async()=>{try{const it=await api('/survey-admin/reference');$('#rf-rows').innerHTML=it.map(r=>`<tr><td>${esc(IND[r.indicator_key]?.label||r.indicator_key)}${r.category?` <span class="chip">${esc(r.category)}</span>`:''}</td><td><b>${r.value}</b> <span class="sub">${r.stat==='share'?'(part)':'(moyenne)'}</span></td><td>${r.scope_h3?esc(r.scope_h3)+' (r'+r.scope_res+')':'National'}</td><td>${r.period_year||'—'}</td><td>${esc(r.source)}</td><td>${isAdmin()?`<button class="btn er sm" data-d="${r.id}">Supprimer</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Aucune valeur de référence.</td></tr>'}catch(e){toast(e.message,1)}};
+ $('#rf-rows').onclick=async e=>{const id=e.target.dataset.d;if(!id||!confirm('Supprimer ?'))return;try{await api('/survey-admin/reference/'+id,{method:'DELETE'});ld()}catch(x){toast(x.message,1)}};
+ if($('#rf-add'))$('#rf-add').onclick=()=>{const m=modal(`<h3>Nouvelle valeur de référence</h3><div class="g2"><label class="f">Indicateur<select id="m-i">${opts}</select></label><label class="f" id="m-cw">Réponse concernée<select id="m-c"></select></label><label class="f">Valeur<input id="m-v" type="number" step="any"></label><label class="f">Source *<input id="m-s" placeholder="Ex : Recensement 2023"></label><label class="f">Année<input id="m-y" type="number" min="1900" max="2100"></label><label class="f">Zone (code H3, facultatif)<input id="m-h"></label><label class="f">Résolution de la zone<input id="m-r" type="number" min="3" max="9"></label></div><div class="sub" id="m-hint"></div><div class="row" style="margin-top:12px"><button class="btn" id="m-ok">Enregistrer</button><button class="btn sec" data-close>Annuler</button></div>`);
+  const sync=()=>{const i=IND[$('#m-i').value];$('#m-cw').hidden=i.kind!=='category';if(i.kind==='category')$('#m-c').innerHTML=i.categories.map(c=>`<option value="${c.code}">${esc(c.label)}</option>`).join('');$('#m-hint').textContent=i.kind==='number'||i.kind==='scale'?'Valeur moyenne attendue ('+(i.unit||'')+').':'Part attendue, entre 0 et 1 (ex : 0.65 pour 65 %).'};$('#m-i').onchange=sync;sync();
+  $('#m-ok').onclick=async()=>{const i=IND[$('#m-i').value],num=i.kind==='number'||i.kind==='scale';try{await api('/survey-admin/reference',{method:'POST',body:{items:[{indicator_key:i.key,stat:num?'mean':'share',category:i.kind==='category'?$('#m-c').value:null,value:+$('#m-v').value,scope_h3:$('#m-h').value.trim()||null,scope_res:$('#m-r').value?+$('#m-r').value:null,period_year:$('#m-y').value?+$('#m-y').value:null,source:$('#m-s').value.trim()}]}});m.remove();toast('Valeur ajoutée');ld()}catch(e){toast(e.message,1)}}};ld()}
+function tCt(){$('#tab').innerHTML=S.cat.domains.map(d=>`<details class="card"><summary><b style="color:${d.color}">${esc(d.label)}</b> <span class="sub">· ${d.indicators.length} indicateurs</span></summary><div class="sub">${esc(d.summary)}</div><table style="margin-top:8px"><thead><tr><th>Indicateur</th><th>Type</th><th>Unité</th></tr></thead><tbody>${d.indicators.map(i=>`<tr><td>${esc(i.label)}${i.sensitive?' <span class="chip">sensible</span>':''}</td><td>${{number:'Nombre',share:'Oui / Non',scale:'Échelle 1-5',category:'Choix'}[i.kind]}</td><td>${esc(i.unit)}</td></tr>`).join('')}</tbody></table></details>`).join('')}
+</script></body></html>
